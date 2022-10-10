@@ -5,6 +5,7 @@
 
 
 
+
 two_step_PCA <- function(dataframe, means = TRUE, 
                          foraging_traits,
                          locomotory_traits){
@@ -43,6 +44,7 @@ return(pca_data)
   }
   
   
+  
   dataframe <- dataframe[-drop_rows,]
   
   ## now we need to consider when we have multiple specimens how we deal with missing data. Especially,
@@ -59,6 +61,8 @@ return(pca_data)
     for(species in na_sp){
       
       species_trait_mean <- mean(((data %>% dplyr::filter(Birdlife_Name == species)))[,2],na.rm = TRUE)
+      
+ 
     
       dataframe[dataframe$Birdlife_Name == species & is.na(dataframe[,trait]),trait] <- species_trait_mean
         
