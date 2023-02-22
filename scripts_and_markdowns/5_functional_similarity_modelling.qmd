@@ -1,0 +1,1095 @@
+---
+title: "5_Functional_similarity_modelling"
+author: "Patrick Alexander Walkden"
+format: html
+editor: visual
+---
+
+## Modelling functional similarity
+
+The second element of FII is the degree to which bird communities are functionally similar to those in primary minimally used habitat. What is considered primary habitat may vary spatially, as parts of the world are naturally forested and others are natural grass and rangelands. Therefore, this necessitates two models assessing the impact of land use on the functional similarity of bird communities, one that compares communities to a primary forest baseline and another that compares to a primary non-forest baseline. Luckily PREDICTS accommodates for these two scenarios with community composition data for forest and non-forest sites.
+
+The measure of functional similarity that I am going to use is the portion of the overall similarity that is accounted for just by the regions shared between the two hypervolumes (nestedness). This is because similarity could be inflated by accounting for regions of trait space occupied only by the community in other land uses and thus not is essence represent "intact" trait space.
+
+The two models will take the functional similarity of communities to a primary baseline as a function of the land use comparison and continuous pressures using generalised linear mixed effect models (GLMM). However, the functional similarity of sites is likely to be influenced not only by the difference in pressure between sites but the absolute pressure experienced at the second site, therefore we evaluate each of these for each continuous pressure. I also include control variables of the mean value of road and human population density within studies, and also geographic and environmental distance to account for landscape level pressures and distance decay in functional similarity. Study is also included as a random effect to account for broad differences in methodology, location and sampling effort between studies.
+
+## Load in data and packages 
+
+```{r}
+
+rm(list = ls())
+
+require(tidyverse) ## data manipulation
+require(car) ## post-hoc model analyses
+require(lme4) # modelling generalised linear mixed effects models
+require(lmerTest) ## model scrutiny
+require(ggResidpanel) ## model scrutiny 
+require(sjPlot) ## visulise interactions
+require(sjmisc) ## ditto
+require(doParallel) ## parallel computing
+require(future.apply)
+```
+
+The data we are going to need is the beta diversity dataframe with all the extracted pressures included. With the exclusion of the Hvengaard study that we are not using.
+
+```{r}
+
+
+beta_data <- readRDS("../outputs/beta_diversity_dataframe.rds") %>% dplyr::filter(SS != "GN1_2010__Hvenegaard 2")
+
+
+```
+
+## Primary forest similarity model
+
+Because we are modelling for two different baselines the data we used is diminished for each set - more so for the non-forest baseline but it means that there may not be enough comparisons for each land use to permit the use of all three intensities so some land uses intensity class need to be combined.
+
+```{r}
+
+primary_forest_data <- beta_data %>% dplyr::filter(grepl(land_use_combination, pattern = "Primary forest_Minimal use - "))
+
+
+table(primary_forest_data$land_use_combination)
+```
+
+Here we can see that Pasture intense use, Cropland intense use and secondary intense use have many fewer site so compared to the other land use classification so they should be lumped together with light intense use in their respective land uses. Also as before I will lump all urban sites together.
+
+```{r}
+
+primary_forest_data <-
+  primary_forest_data %>% 
+  dplyr::mutate(land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Secondary vegetation_Intense use")|
+                                                grepl(land_use_combination, pattern = "Primary forest_Minimal use - Secondary vegetation_Light use"),
+                                              "Primary forest_Minimal use - Secondary vegetation_High use", paste(land_use_combination)),
+                land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Urban"),
+                                              "Primary forest_Minimal use - Urban", paste(land_use_combination)),
+                 land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Pasture_Intense use")|
+                                                 grepl(land_use_combination, pattern = "Primary forest_Minimal use - Pasture_Light use"),
+                                               "Primary forest_Minimal use - Pasture_High use", paste(land_use_combination)),
+                land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Cropland_Intense use")|
+                                                grepl(land_use_combination, pattern = "Primary forest_Minimal use - Cropland_Light use"),
+                                              "Primary forest_Minimal use - Cropland_High use", paste(land_use_combination))
+                
+  ) %>% dplyr::filter(!grepl(x = land_use_combination, pattern = "Cannot decide"))
+
+
+## have a look at distribution of sites 
+
+table(primary_forest_data$land_use_combination)
+
+
+### get levels and makes land use combination a factor 
+land_use_combination_levels <- c("Primary forest_Minimal use - Primary forest_Minimal use",
+                                 "Primary forest_Minimal use - Primary forest_Light use",
+                                 "Primary forest_Minimal use - Primary forest_Intense use",
+                                 "Primary forest_Minimal use - Primary non-forest_Minimal use",
+                                 "Primary forest_Minimal use - Primary non-forest_Light use",
+                                 "Primary forest_Minimal use - Primary non-forest_Intense use",
+                                 "Primary forest_Minimal use - Secondary vegetation_Minimal use",
+                                 "Primary forest_Minimal use - Secondary vegetation_High use",
+                                 "Primary forest_Minimal use - Plantation forest_Minimal use",
+                                 "Primary forest_Minimal use - Plantation forest_Light use",
+                                 "Primary forest_Minimal use - Plantation forest_Intense use",
+                                 "Primary forest_Minimal use - Pasture_Minimal use",
+                                 "Primary forest_Minimal use - Pasture_High use",
+                                 "Primary forest_Minimal use - Cropland_Minimal use",
+                                 "Primary forest_Minimal use - Cropland_High use",
+                                 "Primary forest_Minimal use - Urban")
+
+
+
+primary_forest_data$land_use_combination <-
+  factor(primary_forest_data$land_use_combination,
+         levels = land_use_combination_levels)
+
+```
+
+## Transformations, colinearity and scaling
+
+All the pressure variables have been transformed prior to extraction so I only need to transform the fucntional similarity metric and our control variables.
+
+first up functional similarity, as with our variables that are bound between 0 and 1 a logit transformation will likely be the right transformation for us.
+
+```{r}
+
+## visulaise similarity of the nested regions
+
+hist((1 - primary_forest_data$dissimilarity)  * primary_forest_data$beta_shared, breaks = 30)
+
+
+
+hist(car::logit(
+  (1 - primary_forest_data$dissimilarity) * primary_forest_data$beta_shared,
+  adjust = 0.0001,
+  percents = FALSE
+), breaks = 30) ## thats it 
+
+
+primary_forest_data <-
+  primary_forest_data %>% dplyr::mutate(
+    similarity = car::logit((1 - primary_forest_data$dissimilarity) * primary_forest_data$beta_shared,
+                            adjust = 0.0001,
+                            percents = FALSE
+    )
+  )
+
+### great transformation makes the distribution look a lot better
+
+## Other variables to be transformed
+
+#  1) environmental distance 
+
+
+hist(primary_forest_data$environmental_distance)
+
+hist(log(primary_forest_data$environmental_distance + 1))
+
+
+### looks great
+
+primary_forest_data$log_environmental_distance <-
+  log(primary_forest_data$environmental_distance + 1)
+
+
+# 2) geographic distance
+
+hist(primary_forest_data$geographic_distance)
+
+
+hist(log(primary_forest_data$geographic_distance + 1))
+
+hist(sqrt(primary_forest_data$geographic_distance))
+
+
+### log looks good
+
+primary_forest_data$log_geographic_distance <-
+  log(primary_forest_data$geographic_distance + 1)
+
+
+
+source("https://highstat.com/Books/Book2/HighstatLibV10.R")
+corvif(primary_forest_data[,c("land_use_combination",
+                        "site2_log_hpd",
+                        "site2_log_T30",
+                        "site2_nat_hab_sw",
+                        "site2_log_roads",
+                        "log_hpd_diff",
+                        "log_T30_diff",
+                        "nat_hab_diff",
+                        "log_roads_diff",
+                        "log_environmental_distance",
+                        "log_geographic_distance",
+                        "control_roads",
+                        "control_hpd")])
+
+## some variables are reasonalbly colinear but it is our control varaibles with the absolute levels of pressure at the second site so I think we can proceed.
+
+
+
+```
+
+Now I'm going to scale all the continuous variables and instead of the usual z-score scaling variables to a mean of zero and sd of 1 I will scale to a sd of 2 per [Gelman et al 2008](https://onlinelibrary.wiley.com/doi/10.1002/sim.3107). To do this I create a new function that will scale to a given sd and create attributes to the df so that back transformation can occur.
+
+```{r}
+
+## INPUT: data frame and the required number of sds to devide by 
+
+##OUTPUT: df with the scaled and centred varaibles an attributed added to the df
+
+new_scale <- function(x, sds) {
+  mean <- mean(x, na.rm = TRUE)
+  sd <- sd(x)
+  
+  
+  scale_variable <- (x - mean) / ((1 / sds) * sd)
+  
+  
+  attr(scale_variable, "scale.scale") <- ((1 / sds) * sd)
+  attr(scale_variable, "scale.center") <- mean
+  
+  
+  return(scale_variable)
+  
+}
+
+
+### scale all variables
+
+primary_forest_data$site2_log_hpd <- new_scale(primary_forest_data$site2_log_hpd, 2)
+primary_forest_data$site2_log_T30 <- new_scale(primary_forest_data$site2_log_T30, 2)
+primary_forest_data$site2_nat_hab_sw <-
+  new_scale(primary_forest_data$site2_nat_hab_sw, 2)
+primary_forest_data$site2_log_roads <- new_scale(primary_forest_data$site2_log_roads, 2)
+primary_forest_data$log_hpd_diff <- new_scale(primary_forest_data$log_hpd_diff, 2)
+primary_forest_data$log_T30_diff <- new_scale(primary_forest_data$log_T30_diff, 2)
+primary_forest_data$nat_hab_diff <- new_scale(primary_forest_data$nat_hab_diff, 2)
+primary_forest_data$log_roads_diff <- new_scale(primary_forest_data$log_roads_diff, 2)
+primary_forest_data$log_environmental_distance <-
+  new_scale(primary_forest_data$log_environmental_distance, 2)
+primary_forest_data$log_geographic_distance <-
+  new_scale(primary_forest_data$log_geographic_distance, 2)
+primary_forest_data$control_hpd <- new_scale(primary_forest_data$control_hpd, 2)
+primary_forest_data$control_roads <- new_scale(primary_forest_data$control_roads, 2)
+
+
+```
+
+## Permuted data to aid model selection
+
+Model selection using our data is not as simple as backwards stepwise model selection because the data is not independent of each other as the same site is compared multiple times to other sites within the same study. To get around this it is necessary to permute the dataset to determine whether a variable can be excluded from the model without losing a significant amount of explanatory power.
+
+To permute the data I shuffle the similarity measure randomly within the study, 1000 times.
+
+```{r}
+
+ Permuted_data <- rep(list(NA), 1000)
+  
+  set.seed(12345)
+  
+  for (i in 1:1000) {
+    sample_data <- c()
+    
+    for (study in unique(primary_forest_data$SS)) {
+      data <- primary_forest_data %>% filter(SS == study)
+      
+      data$similarity <- data[sample(NROW(data)), "similarity"]
+      
+      sample_data <- rbind(sample_data, data)
+      
+    }
+    
+    Permuted_data[[i]] <- sample_data
+    
+  }
+  write_rds(".../outputs/beta_modelling_forest_permuted_data.rds", x = Permuted_data)
+```
+
+## Modelling of functional similarity to primary forest sites
+
+So let's get to modelling first let's have a look at the maximal model and see whether it is required to include a random slope in our model.
+
+```{r}
+
+
+model_1 <- lmer(
+  similarity ~ land_use_combination +
+    land_use_combination:site2_log_hpd + land_use_combination:site2_log_T30 + land_use_combination:site2_nat_hab_sw +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (1 | SS),
+  data = primary_forest_data
+)
+
+
+summary(model_1)
+car::Anova(model_1)
+
+BIC(model_1) ## 25932
+
+
+
+model_1a <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_nat_hab_sw| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1a) #### 25856.6 very much lower okay 
+
+
+## site2_log_roads
+
+model_1b <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_log_roads| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1b) #### 25858.79 lower but not as low as model_1a
+
+## site2_log_hpd
+
+model_1c <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_log_hpd| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1c) #### 25935.9 nope  
+
+
+## site2_log_T30
+
+model_1d <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_log_T30| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1d) #### 25949.15 -- nope
+
+
+## nat_hab_diff
+
+model_1e <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (nat_hab_diff| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1e) #### 25898.08 - -nope
+
+## log_roads_diff
+
+model_1f <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (log_roads_diff| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1f) #### 25934.83 -- nope 
+
+
+## log_hpd_diff
+
+model_1g <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (log_hpd_diff| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1g) #### not as low as log roads
+
+## log_T30_diff
+
+model_1h <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_nat_hab_sw + land_use_combination:site2_log_T30 +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff + land_use_combination:log_T30_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff + land_use_combination:site2_log_hpd +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (log_T30_diff| SS),
+  data = primary_forest_data
+)
+
+BIC(model_1h) #### 25907.51 -- nope
+
+
+## so continue with model 3b -- random slope of site2_log_roads
+
+summary(model_1a)
+car::Anova(model_1a)
+
+```
+
+Random slope of site2_nat_hab_sw is required to produce the model with the best random effect structure. Also looking at the model there are no interactions to attempt to remove so model_1a is our final model.
+
+## Forest similarity model diagnostics
+
+```{r}
+ggResidpanel::resid_panel(model_1a)
+
+
+plot_model(model_1a, type = "int")
+```
+
+```{r}
+## save
+
+write_rds(file = "outputs/functional_similarity_forest_model.rds", x = model_1a)
+write_rds(file = "outputs/functional_similarity_forest_dataframe.rds", x  = primary_forest_data)
+
+```
+
+## Primary non-forest functional similarity modelling
+
+In PREDICTS there are fewer primary non-forest meaning that there are not a sufficient number of comparisons between the minimal intensity land use classification to enable accurate modelling therefore the I combine minimal use and light use to have a baseline of primary non-forest low use.
+
+```{r}
+
+primary_non_forest_data <- beta_data %>% dplyr::filter(grepl(land_use_combination, pattern = "Primary non-forest_Minimal use - ")|grepl(land_use_combination, pattern = "Primary non-forest_Light use - "))
+
+
+### change baseline to Primary non-forest low use 
+
+primary_non_forest_data$land_use_combination <-  ifelse(
+  grepl(primary_non_forest_data$land_use_combination, pattern = "Primary non-forest_Minimal use"),
+  gsub(
+    x = primary_non_forest_data$land_use_combination,
+    pattern = "Primary non-forest_Minimal use",
+    replacement = "Primary non-forest_Low use"
+  ), primary_non_forest_data$land_use_combination
+)
+
+
+primary_non_forest_data$land_use_combination <- ifelse(
+  grepl(primary_non_forest_data$land_use_combination, pattern = "Primary non-forest_Light use"),
+  gsub(
+    x = primary_non_forest_data$land_use_combination,
+    pattern =  "Primary non-forest_Light use",
+    replacement = "Primary non-forest_Low use"
+  ), primary_non_forest_data$land_use_combination
+)
+
+table(primary_non_forest_data$land_use_combination)
+```
+
+Again I am going to need to combine a lot of sites together. Secondary vegetation, cropland, plantation forest and urban sites should be combine together totally.
+
+```{r}
+primary_non_forest_data <- primary_non_forest_data %>% dplyr::mutate(land_use_combination = ifelse(grepl(land_use_combination, pattern = "Urban"),
+                                                                                                   "Primary non-forest_Low use - Urban", paste(land_use_combination)),
+                                                                     land_use_combination = ifelse(grepl(land_use_combination, pattern = "Cropland"),
+                                                                                                   "Primary non-forest_Low use - Cropland", paste(land_use_combination)),
+                                                                     land_use_combination = ifelse(grepl(land_use_combination, pattern = "Plantation"),
+                                                                                                   "Primary non-forest_Low use - Plantation forest", paste(land_use_combination)),
+                                                                     land_use_combination = ifelse(grepl(land_use_combination, pattern = "Secondary"),
+                                                                                                   "Primary non-forest_Low use - Secondary vegetation", paste(land_use_combination))
+) %>%
+  dplyr::filter(!grepl(land_use_combination, pattern = "Cannot decide"))
+
+table(primary_non_forest_data$land_use_combination)
+```
+
+```{r}
+land_use_combination_levels <- c("Primary non-forest_Low use - Primary non-forest_Low use",
+                                 "Primary non-forest_Low use - Primary non-forest_Intense use",
+                                 "Primary non-forest_Low use - Primary forest_Minimal use",
+                                 "Primary non-forest_Low use - Primary forest_Light use",
+                                 "Primary non-forest_Low use - Primary forest_Intense use",
+                                 "Primary non-forest_Low use - Secondary vegetation",
+                                 "Primary non-forest_Low use - Plantation forest",
+                                 "Primary non-forest_Low use - Pasture_Minimal use",
+                                 "Primary non-forest_Low use - Pasture_Light use",
+                                 "Primary non-forest_Low use - Pasture_Intense use",
+                                 "Primary non-forest_Low use - Cropland",
+                                 "Primary non-forest_Low use - Urban")
+
+
+primary_non_forest_data$land_use_combination <-
+  factor(primary_non_forest_data$land_use_combination,
+         levels = land_use_combination_levels)
+```
+
+## Transformations, colinearity and scaling
+
+Same transformation for the functional similarity metric
+
+```{r}
+
+hist((1-primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared)
+
+hist(car::logit(
+  (1 - primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared,
+  adjust = 0.0001,
+  percents = FALSE
+)) ## thats it but also we want to make it similarity as opposed to
+## dissimilarity
+
+
+primary_non_forest_data <-
+  primary_non_forest_data %>% dplyr::mutate(
+    similarity = car::logit((1 - primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared,
+                            adjust = 0.0001,
+                            percents = FALSE
+    )
+  )
+
+# 1 environmental distance 
+
+## 1) environmental distance
+
+hist(primary_non_forest_data$environmental_distance)
+
+hist(log(primary_non_forest_data$environmental_distance + 1))
+
+
+### looks great
+
+primary_non_forest_data$log_environmental_distance <-
+  log(primary_non_forest_data$environmental_distance + 1)
+
+
+### 2) geographic distance
+
+hist(primary_non_forest_data$geographic_distance)
+
+
+hist(log(primary_non_forest_data$geographic_distance))
+
+hist(sqrt(primary_non_forest_data$geographic_distance))
+
+
+### log looks good
+
+primary_non_forest_data$log_geographic_distance <-
+  log(primary_non_forest_data$geographic_distance + 1)
+
+
+
+```
+
+right all transformed
+
+```{r}
+corvif(primary_non_forest_data[,c("land_use_combination",
+                        "site2_log_hpd",
+                        "site2_log_T30",
+                        "site2_nat_hab_sw",
+                        "site2_log_roads",
+                        "log_hpd_diff",
+                        "log_T30_diff",
+                        "nat_hab_diff",
+                        "log_roads_diff",
+                        "log_environmental_distance",
+                        "log_geographic_distance",
+                        "control_roads",
+                        "control_hpd")])
+
+## colinearity all good
+
+
+### scale scale scale
+
+primary_non_forest_data$site2_log_hpd <- new_scale(primary_non_forest_data$site2_log_hpd, 2)
+primary_non_forest_data$site2_log_T30 <- new_scale(primary_non_forest_data$site2_log_T30, 2)
+primary_non_forest_data$site2_nat_hab_sw <-
+  new_scale(primary_non_forest_data$site2_nat_hab_sw, 2)
+primary_non_forest_data$site2_log_roads <- new_scale(primary_non_forest_data$site2_log_roads, 2)
+primary_non_forest_data$log_hpd_diff <- new_scale(primary_non_forest_data$log_hpd_diff, 2)
+primary_non_forest_data$log_T30_diff <- new_scale(primary_non_forest_data$log_T30_diff, 2)
+primary_non_forest_data$nat_hab_diff <- new_scale(primary_non_forest_data$nat_hab_diff, 2)
+primary_non_forest_data$log_roads_diff <- new_scale(primary_non_forest_data$log_roads_diff, 2)
+primary_non_forest_data$log_environmental_distance <-
+  new_scale(primary_non_forest_data$log_environmental_distance, 2)
+primary_non_forest_data$log_geographic_distance <-
+  new_scale(primary_non_forest_data$log_geographic_distance, 2)
+primary_non_forest_data$control_hpd <- new_scale(primary_non_forest_data$control_hpd, 2)
+primary_non_forest_data$control_roads <- new_scale(primary_non_forest_data$control_roads, 2)
+
+
+
+```
+
+## Permuted data
+
+randomly shuffling the similarity metric within studies.
+
+```{r}
+
+registerDoParallel(cores = detectCores() - 1)
+
+  
+  Permuted_data <- foreach(i = 1:1000,.combine = "c",.inorder = FALSE,.packages = c("tidyverse")) %dopar% {
+    
+  
+    sample_data <- c()
+    
+    for (study in unique(primary_non_forest_data$SS)) {
+      data <- primary_non_forest_data %>% filter(SS == study)
+      
+      data$similarity <- data[sample(NROW(data)), "similarity"]
+      
+      sample_data <- rbind(sample_data, data)
+      
+    }
+    
+    sample_data <- list(sample_data)
+    
+    return(sample_data)
+    
+  }
+  write_rds("../outputs/beta_modelling_non_forest_permuted_data.rds", x = Permuted_data)
+  
+  
+  closeAllConnections()
+```
+
+## Modelling primary non-forest functional similarity
+
+Now with the reduced data for some land use classifications the maximal model with all interactions is rank-deficient so the model that will will start at will be the one that removes interactions until rank-deficiency is resolved.
+
+```{r}
+
+
+### interaction with site2_log_T30 resulted in an error with the model so has been initially removed. 
+
+model_1 <- lmer(
+  similarity ~ land_use_combination +
+    land_use_combination:site2_log_hpd  + land_use_combination:site2_nat_hab_sw +
+    land_use_combination:log_hpd_diff + land_use_combination:site2_log_roads + land_use_combination:log_roads_diff +  
+    land_use_combination:nat_hab_diff  + land_use_combination:log_T30_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (1 | SS),
+  data = primary_non_forest_data)
+
+
+
+
+
+
+###need to remove land_use_combination:log_roads_diff
+
+
+model_2 <- update(model_1, ~ . -land_use_combination:site2_nat_hab_sw)
+model_3 <- update(model_2, ~ . -land_use_combination:log_T30_diff)
+
+BIC(model_3) ## 17489.63
+
+## okay so model three is our model to assess whether a random slope is necessary 
+
+## site2_nat_hab_sw
+
+model_3a <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_nat_hab_sw| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3a) #### singular
+
+
+## site2_log_roads
+
+model_3b <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_log_roads| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3b) #### singular 
+
+## site2_log_hpd
+
+model_3c <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_log_hpd| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3c) #### 17477.75 lower so go forward
+
+
+## site2_log_T30
+
+model_3d <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (site2_log_T30| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3d) #### does not converge
+
+
+## nat_hab_diff
+
+model_3e <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (nat_hab_diff| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3e) #### singular
+
+## log_roads_diff
+
+model_3f <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (log_roads_diff| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3f) #### singular -- pass
+
+## log_hpd_diff
+
+model_3g <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (log_hpd_diff| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3g) #### singular -- pass
+
+## log_T30_diff
+
+model_3h <- lmer(
+  similarity ~ land_use_combination + land_use_combination:site2_log_hpd +
+    land_use_combination:site2_log_roads + land_use_combination:log_hpd_diff +
+    land_use_combination:nat_hab_diff + land_use_combination:log_roads_diff +
+    site2_log_hpd + site2_log_T30 +
+    site2_nat_hab_sw +
+    site2_log_roads +
+    log_hpd_diff +
+    log_T30_diff +
+    nat_hab_diff +
+    log_roads_diff +
+    log_environmental_distance + log_geographic_distance +
+    control_roads + control_hpd +
+    (log_T30_diff| SS),
+  data = primary_non_forest_data
+)
+
+BIC(model_3h) #### higher -- do not proceed
+
+
+### despite  model 3g having a lower BIC it has a singular fit so I should pass on the model - therefore model_3c then has the next lowest BIC so will proceed with that 
+
+summary(model_3c)
+car::Anova(model_3c)
+```
+
+So we now proceed with model selection, here we should drop land_use_combination:log_roads_diff. Then to check whether a significant amount of explanatory power is lost I will compare the likelihood ratio of our observed model with the distribution of likelihood ratios of the permuted data. If the likelihood ratio is significantly higher than expected then the simplified model can proceed.
+
+I have a function that can do this. the function is used for the HPC but I have included the essence of the function below.
+
+```{r}
+
+source("../functions/Permuted_model_simplification.R")
+
+### need to remove land_use_combination:log_roads_diff
+
+model_4 <- update(model_3c, ~ . -land_use_combination:log_roads_diff)
+
+    
+    #### create blank object to then hold LRT of the random comparisons of models 
+    LRT_dist <- c()
+    
+    #### i in number of randomisations
+    
+      LRT_get <- function(i, model1, model2){
+      
+      ### "Full" model
+      mod1 <- lmer(model1@call, data = data[[i]], REML = FALSE)
+      
+      ### reduced model 
+      mod2 <- lmer(model2@call, data = data[[i]], REML = FALSE)
+      
+      ### calculate LRT
+      LRT <- anova(mod1,mod2)
+      
+      #### extract LR
+      LRT <- na.omit(LRT[,"Chisq"])
+      
+      ## add to distribution
+     return(LRT)
+      
+    }
+  
+    plan(multicore(workers = detectCores() - 1))
+    options(future.globals.maxSize= 10000000000000000000000000)
+    
+    LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_3c, model2 = model_4))
+    
+    
+    closeAllConnections()
+    
+    ### same again but with the observed data
+    mod_LRT <- anova(model_3c, model_4)
+    ChiSq <- mod_LRT[2,"Chisq"]
+    
+    ## get the 95 percentile of the distribution
+    
+    dist_quant <- quantile(LRT_dist, 0.95)
+    
+    ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
+    ### impacted by the removal of the variable 
+    
+    DROP <- ChiSq < dist_quant
+    
+   #### good the variable can de droped without losing a significant amount of explanatory power 
+    
+  
+    
+    car::Anova(model_4)
+    
+    
+    ##### drop log roads 
+    
+    model_5 <- update(model_4, ~ . -log_T30_diff)
+    
+    
+    plan(multicore(workers = detectCores() - 1))
+    options(future.globals.maxSize= 10000000000000000000000000)
+    
+    LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_4, model2 = model_5))
+    
+    
+    closeAllConnections()
+    
+    ### same again but with the observed data
+    mod_LRT <- anova(model_4, model_5)
+    ChiSq <- mod_LRT[2,"Chisq"]
+    
+    ## get the 95 percentile of the distribution
+    
+    dist_quant <- quantile(LRT_dist, 0.95)
+    
+    ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
+    ### impacted by the removal of the variable 
+    
+    DROP <- ChiSq < dist_quant
+    
+    
+    
+    car::Anova(model_5)
+    
+    
+    model_6 <- update(model_5, ~ . -site2_log_T30)
+    
+        
+    plan(multicore(workers = detectCores() - 1))
+    options(future.globals.maxSize= 10000000000000000000000000)
+    
+    LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_5, model2 = model_6))
+    
+    
+    closeAllConnections()
+    
+    ### same again but with the observed data
+    mod_LRT <- anova(model_5, model_6)
+    ChiSq <- mod_LRT[2,"Chisq"]
+    
+    ## get the 95 percentile of the distribution
+    
+    dist_quant <- quantile(LRT_dist, 0.95)
+    
+    ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
+    ### impacted by the removal of the variable 
+    
+    DROP <- ChiSq < dist_quant
+    
+    
+    
+    car::Anova(model_6)
+    
+    
+    model_7 <- update(model_6, ~ . -site2_nat_hab_sw)
+    
+    
+        plan(multicore(workers = detectCores() - 1))
+    options(future.globals.maxSize= 10000000000000000000000000)
+    
+    LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_6, model2 = model_7))
+    
+    
+    closeAllConnections()
+    
+    ### same again but with the observed data
+    mod_LRT <- anova(model_6, model_7)
+    ChiSq <- mod_LRT[2,"Chisq"]
+    
+    ## get the 95 percentile of the distribution
+    
+    dist_quant <- quantile(LRT_dist, 0.95)
+    
+    ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
+    ### impacted by the removal of the variable 
+    
+    DROP <- ChiSq < dist_quant
+    
+    
+    
+    car::Anova(model_7)
+    
+    summary(model_7)
+    
+```
+
+Our final model for the non-forest baseline
+
+```{r}
+
+ggResidpanel::resid_panel(model_7)
+
+## diagnostics look okay slight divergence at the lower levels but accepatable
+
+plot_model(model_7, type = "int")
+```
+
+Let's save and continue to projections
+
+```{r}
+write_rds("outputs/functional_similarity_non_forest_model.rds", x = model_7)
+write_rds("outputs/functional_similarity_non_forest_dataframe.rds", x = primary_non_forest_data)
+
+```

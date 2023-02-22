@@ -1,0 +1,305 @@
+---
+title: "Defining_trait_axes"
+author: "Patrick Alexander Walkden"
+format: pdf
+editor: visual
+---
+
+## Defining trait axes for Analyses
+
+[AVONET](https://onlinelibrary.wiley.com/doi/full/10.1111/ele.13898) contains functional traits for the world's birds including eight continuous morphological traits. These traits are beak length, nares, width and depth, and tarsus length, tail length, first secondary and wing chord. As with other analyses using these traits we performed a two-step PCA [Trisos et al 2014](https://www.journals.uchicago.edu/doi/10.1086/678233). This approach reduces the number of trait dimensions, while producing meaningful axes of variation. The two-step PCA entails first partitioning the traits into those related to the foraging niche (beak dimensions) and those related to the locomotory niche (tail wing and leg dimensions). A PCA is then performed on each partition. Due to the inherent positive association between all traits and body size the first axes of each PCA is extracted to represent the size variation in each. A further PCA is then performed on the two PC1s and the first PC is extracted as our single axis representing differences in body size (size). The PC2s of the initial PCAs are then extracted as our trait axes representing differences in the forgaing and locomotory niches respectively. So let me demonstrate...
+
+```{r}
+
+### just going to load in packages 
+rm(list = ls())
+
+require(tidyverse) ## data wrangling
+require(magrittr) ## piping
+require(TPD) ## TPD package to compute community morphospace
+
+```
+
+## Load in data
+
+The [TPD](https://esajournals.onlinelibrary.wiley.com/doi/abs/10.1002/ecy.2876) approach to computing functional trait spaces allows for the full use of the AVONET database and the multiple specimens that it often contains for each species, therefore we will need to load in the full database as well as the PREDICTS database.
+
+```{r}
+## AVONET FULL - for the raw specimen data 
+
+AVONET_full <- read.csv("../../../Datasets/GBD/GBD_BiometricsRaw_combined_11_Aug_2021_MASTER.csv")
+
+
+### PREDICTS 
+
+PREDICTS <-
+  readRDS("../data/refined_predicts.rds")  %>%
+  dplyr::filter(Predominant_habitat != "Cannot decide") %>% ## eemove sites we dont know what land use it is 
+  dplyr::mutate(Predominant_habitat = ifelse(
+    grepl(
+      Predominant_habitat,
+      pattern = "secondary",
+      ignore.case = TRUE
+    ),
+    "Secondary vegetation",
+    paste(Predominant_habitat) ### combine secondary 
+  ))  %>% 
+  dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_")) ## combine land use and intensity
+
+
+### load in two step PCA function script
+
+source("../functions/two_step_pca.R")
+
+
+```
+
+## Prepping data
+
+We need to extract all the species that are present within PREDICTS
+
+```{r}
+
+PREDICTS_speices <- PREDICTS %>% dplyr::distinct(Birdlife_Name) %>% pull()
+
+foraging_traits = c("Beak.Length_Culmen", "Beak.Length_Nares" , "Beak.Width" ,"Beak.Depth")
+locomotory_traits = c("Tarsus.Length", "Wing.Length","Secondary1","Tail.Length" )
+
+species_specimens <- AVONET_full %>% dplyr::filter(Species1_BirdLife %in% PREDICTS_speices)
+
+species_specimens <- species_specimens[,c("Species1_BirdLife",foraging_traits,locomotory_traits)]
+
+```
+
+## Two-step PCA for full specimen data
+
+```{r}
+
+## perform the two-step pca - some specimens will be dropped if after some imputation there are still incomplete cases
+
+
+two_step_dataframe <- two_step_PCA(dataframe = species_specimens, means = FALSE,
+                                   foraging_traits = foraging_traits,
+                                   locomotory_traits = locomotory_traits)
+
+```
+
+## Dealing with varying specimen availability
+
+Great so thats the three meaningful axes calculated for each specimen, the next step concerns how this specimen data is used to compute trait probability density functions (TPDs). This is because in three dimensions there needs to be at least n+1 (4) specimens to enable computation of the function.
+
+If there are four or more specimens then species TPDs can be calculated with a kernel desnity functions - standard for TPD.
+
+Fewer than four specimens then density functions are calculated as multivariate normal distributions, centered on the mean; greater than a single specimen the standard deviation can be derived from specimen values, single specimens, sd is calculated through a plug-in bandwidth estimator from the ks package. So let's get on with it...
+
+```{r}
+### lets have a look at which species have sufficient data and which do not 
+
+n_specimens <- two_step_dataframe %>% dplyr::group_by(Birdlife_Name) %>% dplyr::mutate(n_specimen = n())
+
+
+full_specimens <- n_specimens %>% dplyr::filter(n_specimen >= 4) 
+
+full_species <- full_specimens %>% dplyr::distinct(Birdlife_Name) %>% pull()
+## so we have 3532 species that have sufficient specimens to create full TPDs
+
+
+
+### how many with fewer that 4 but greater than one specimen
+fewer_specimens <- n_specimens %>% dplyr::filter(n_specimen < 4 & n_specimen > 1)
+
+fewer_species <- fewer_specimens %>% dplyr::distinct(Birdlife_Name) %>% pull()
+### 32 species with fewer
+
+### now only those with a single specimen
+single_specimen <- n_specimens %>% dplyr::filter(n_specimen == 1)
+
+single_species <- single_specimen %>% dplyr::distinct(Birdlife_Name) %>% pull()
+## nine species with a single specimen
+
+3532+ 32 + 11 
+
+
+```
+
+3575 doesn't add up to the number of species - this is because there are still species within AVONET that have no avilable specimens. However [Pigot et al 2020](http://www.nature.com/articles/s41559-019-1070-4) imputed data for species by substituting in morphologically similar species mean values in.
+
+```{r}
+
+## load in imputed data
+
+impute_mean_traits <- readRDS("../../PREDICTS_Taxonomy/PREDICTS_imputed_BL_traits.rds")
+
+## which species ahave no specimens -- 157 species 
+
+no_specimen_species <- PREDICTS_speices[!(PREDICTS_speices %in% c(full_species,fewer_species,single_species))]
+
+## retreive their traits from the datset
+no_specimen_traits <- impute_mean_traits[impute_mean_traits$uniqueIDS %in% no_specimen_species,]
+
+
+### okay will need to add this into the species specimen data frame and perform the two step again.
+
+colnames(no_specimen_traits)[1] <- "Species1_BirdLife"
+no_specimen_traits <- no_specimen_traits[,colnames(species_specimens)]
+
+
+### if there are multiple specimens for some species but they all are missing values for a single trait we can
+### possibly impute some more values for the multiple specimens
+
+
+species_specimens <- species_specimens %>% dplyr::filter(!(Species1_BirdLife %in% no_specimen_species)) %>%
+  rbind(no_specimen_traits)
+
+
+two_step_dataframe <- two_step_PCA(species_specimens,foraging_traits = foraging_traits,locomotory_traits = locomotory_traits,
+                                    means = FALSE)
+
+
+### are all species now considered?
+
+all(PREDICTS_speices %in% two_step_dataframe$Birdlife_Name)
+
+
+## great, so those mean species and specimens can be added onto the single species list
+
+single_species <- c(single_species,no_specimen_species)
+
+```
+
+## Checks
+
+Even if species what the required number of specimens available, occasionally there are species that show so little variation that they can't be evaluated with the TPD approach so we need to check. This is done by computing a TPD for all species and seeing whether all produce viable morphospaces.
+
+```{r}
+
+## this contains a lot of useful functions for computing TPDs
+
+source("../functions/TPD_computation_functions.R")
+
+### trait ranges define the size of the morphospace that species are projected into
+### I use 2.5% buffer on all species traits 
+
+trait_ranges <- trait_range_calculation(traits = full_specimens, range = 0.025)
+
+
+## alpha dictates the amount of cut off point for the TPD so we are takking 99% percentile of the derived probability density functions. 
+
+full_tpds <-
+  TPDs(
+    species = full_specimens$Birdlife_Name,
+    traits = full_specimens[, c(2:4)],
+    trait_ranges = trait_ranges, alpha = 0.99
+  )
+
+
+check_species <- TPD_check(full_tpds)
+
+#### actually all species can be porjected into morphospace -- great.
+```
+
+Good so there is not much that needs to be done regarding the full speicmens. So let's look at the species that are using mean trait values to define TPDs.
+
+```{r}
+
+
+fewer_specimens <- fewer_specimens %>% dplyr::group_by(Birdlife_Name) %>% dplyr::summarise(meanfor = mean(foraging),
+                                                                                           meanloco = mean(locomotory),
+                                                                                           meanbody = mean(body_size),
+                                                                                           sdfor = sd(foraging),
+                                                                                           sdloco = sd(locomotory),
+                                                                                           sdbody = sd(body_size))
+
+
+fewer_tpds <- TPDsMean(species = fewer_specimens$Birdlife_Name, means = fewer_specimens[,c(2:4)],
+                        sds = fewer_specimens[,c(5:7)], alpha = 0.99, trait_ranges = trait_ranges)
+
+
+mean_check_species <- TPD_check(fewer_tpds)
+## mean check species -- identified a single species that is problematic 
+
+
+## remove the species from the fewre species list
+fewer_specimens <- fewer_specimens %>% dplyr::filter(!(Birdlife_Name %in% mean_check_species))
+
+## one mean species doesn't make it and gets passed onto the single specimen list 
+single_species <- unique(c(single_species, mean_check_species,no_specimen_species))
+
+```
+
+Now final check to see whether species that we only have a single specimen for will be problematic. TPDs will be calculated using the multivariate normal distribution with the bandwidth determined by the unconstrained bandwidth estimator as done by [Carmona et al 2021](https://advances.sciencemag.org/content/7/13/eabf2675).
+
+```{r}
+
+
+### unconstrained bandwidth estimator as used by Carmona et al.based on all specimens
+single_bandwidth <- sqrt(diag(Hpi.diag(two_step_dataframe[,c(2:4)])))
+
+
+## get the data in the format necessary taking the mean values of the specimens available
+single_traits <- two_step_dataframe %>% dplyr::filter(Birdlife_Name %in% single_species) %>% dplyr::group_by(Birdlife_Name) %>%
+  dplyr::summarise(meanfor = mean(foraging),
+                   meanloco = mean(locomotory),
+                   meanbody = mean(body_size)) %>% dplyr::ungroup() %>%
+  dplyr::mutate(sdfor = single_bandwidth[1],
+                sdloco = single_bandwidth[2],
+                sdbody = single_bandwidth[3])
+
+
+## calculate TPDS
+single_tpds <- TPDsMean(species = single_traits$Birdlife_Name, means = single_traits[,c(2:4)], sds = single_traits[,c(5:7)],
+                        trait_ranges = trait_ranges, alpha = 0.99)
+
+
+## great it's got nothing in it!
+
+final_tpd_check <- TPD_check(single_tpds)
+
+
+### NOPE no discrepancies 
+```
+
+Now we know which species lie in which category: full specimens, mean specimens or single specimens we can combine them in a list to export.
+
+```{r}
+
+FII_trait_list <- list()
+
+FII_trait_list$complete_traits <- data.frame(full_specimens)
+FII_trait_list$partial_traits <- data.frame(fewer_specimens)
+FII_trait_list$single_traits <- data.frame(single_traits)
+FII_trait_list$full_specimen_dataframe <- two_step_dataframe
+
+
+### final checks to see whether all species are represented and only represented once.
+
+
+#### are all species considered here 
+
+full_sp <- unique(FII_trait_list$complete$Birdlife_Name)
+partial_sp <- unique(FII_trait_list$partial$Birdlife_Name)
+single_sp <- unique(FII_trait_list$single$Birdlife_Name)
+
+all_species <- c(full_sp,partial_sp,single_sp)
+
+## great
+
+all(all_species %in% PREDICTS_speices)
+
+
+## all species just appear once?
+
+any(full_sp %in% partial_sp)
+any(full_sp %in% single_sp)
+any(partial_sp %in% single_sp)
+
+
+### great, now save
+
+
+
+
+write_rds("../outputs/traits_without_foraging_list.rds", x = FII_trait_list)
+
+
+```

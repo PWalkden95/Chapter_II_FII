@@ -1,0 +1,344 @@
+---
+title: "Computing_TPDs_for_alpha_and_beta_diveristy"
+author: "Patrick Alexander Walkden"
+format: html
+editor: visual
+---
+
+## Computing Trait Probability Density (TPD) functions for alpha and beta diversity
+
+In this script I will be combing data from the PREDICTS database and the trait information that we gathered in the previous script to calculate the functional trait spaces for each community within PREDICTS and compare trait spaces within studies.
+
+This is done similarly however, with a slight difference, the size of the trait space which these communities will be projected into. Because the TPD approach evaluates the density functions at points that form a 50x50x50 grid the limits of the trait space will influence where trait spaces are evaluated the geometry of the final TPD. Therefore, to maximise precision of the produced TPDs we set the limits as the trait ranges of the species within the community with a 2.5% buffer. When comparing trait spaces within studies the trait space limits are set as the trait ranges of all species within the study with a 2.5% buffer.
+
+```{r}
+rm(list = ls())
+
+require(tidyverse) ## data wrangling
+require(TPD) ## to compute TPDs
+require(doParallel) ## parallel computing
+require(gtools) ## tools
+require(future) ## parallel
+require(future.apply) ## parallel
+require(magrittr) ## piping
+
+
+source("../functions/TPD_computation_functions.R") ## functions to compute TPDs
+```
+
+## Load in data
+
+Data required will be the PREDICTS database and the trait scores that we produced last script.
+
+```{r}
+PREDICTS <-
+  readRDS("../data/refined_predicts.rds")  %>% ## the refined predicts 
+
+  dplyr::filter(Predominant_habitat != "Cannot decide") %>% ## filter no land use
+  dplyr::mutate(Predominant_habitat = ifelse(
+    grepl(
+      Predominant_habitat,
+      pattern = "secondary",
+      ignore.case = TRUE
+    ),
+    "Secondary vegetation",
+    paste(Predominant_habitat) ## combine secondary vegetation
+  )) %>% dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_")) ## combine land use and intensity.
+
+
+trait_list <- readRDS("../outputs/traits_without_foraging_list.rds")
+
+```
+
+## Format PREDICTS for TPD computation
+
+There are some additional formatting that needs to be done for we can compute TPDs with the PREDICTS data.
+
+1\) filter out sites that have too few species to compute TPDs
+
+2\) Calculate relative abundance with each study
+
+```{r}
+## PREDICTS also needs some extra formatting before computation of the TPDs
+
+## filter out any species that need to be dropped 
+
+TPD_data <- data.frame(PREDICTS) %>%
+  
+  ## group by site and birdlife name a occasionally the sme species pops up in the same site twice.
+  
+  dplyr::group_by(SSBS,Birdlife_Name) %>% dplyr::mutate(SpeciesSiteAbundance = sum(Effort_Corrected_Measurement), n_spp = n()) %>%
+  
+  ## filter that that species isn't duplicated and then ungroup 
+  
+  filter(!duplicated(n_spp)| n_spp == 1) %>% ungroup() %>%
+  
+  #### group by site and calculate metrics of how many species are in each site and the total site abundance
+  
+  group_by(SSBS) %>% dplyr::mutate(Site_spp = n_distinct(Birdlife_Name),TotalSiteAbundance = sum(SpeciesSiteAbundance)) %>%
+  
+  ungroup() %>% filter(Site_spp > 1) %>%
+  
+  #### calculate Relative abundance by dividing speices site abundance by total site abundance
+  
+  dplyr::mutate(RelativeAbundance = SpeciesSiteAbundance/TotalSiteAbundance) %>%
+  
+  ## droplevels
+  droplevels() %>%
+  
+  #as data frame
+  data.frame()
+
+
+######
+```
+
+## Computing Alpha TPDs
+
+Here I calculate alpha TPDs in a parallel function that takes study as input and will then calculate TPDs for all sites within study and combine them at the end. This foreach loop will also account for the differing ways that bandwidths and TPDs are calculated. Let's have a look...
+
+```{r}
+
+### all studies within PREDICTS
+sites <- unique(PREDICTS$SSBS)
+
+
+##register cores for parallel computing
+registerDoParallel(cores = detectCores() - 1)
+
+
+alpha_TPD_list <- foreach(site = sites,
+                            .combine = "c",
+                            .inorder = FALSE,
+                            .packages = c("tidyverse","TPD")) %dopar%{
+
+    
+    site_species <- TPD_data %>% dplyr::filter(SSBS == site) %>% dplyr::distinct(Birdlife_Name) %>% pull()
+
+    if(is_empty(site_species)){
+      site_tpd <- list()
+      names(site_tpd) <- "DROP"
+      return(site_tpd)
+    }
+      
+
+  trait_ranges <- get_species_trait_ranges(species = site_species, traits = trait_list, range = 0.025)
+    
+  species_tpds <-   species_TPD(species = site_species,trait_ranges = trait_ranges, traits = trait_list)
+    
+      
+  comm <- TPD_data %>% dplyr::filter(SSBS == site) %>% dplyr::select(Birdlife_Name, RelativeAbundance)
+  rownames(comm) <- comm$Birdlife_Name
+  comm <- comm %>% dplyr::select(-Birdlife_Name)
+  
+  community_trait_density <- TPD::TPDc(TPDs =  species_tpds,sampUnit = t(comm))
+  
+  
+  community_trait_density$TPDc <- community_trait_density$TPDc$TPDc
+  community_trait_density$data <- community_trait_density$data[c("cell_volume", "evaluation_grid")]
+  
+  site_tpd <- list(community_trait_density)
+  names(site_tpd) <- site
+  
+  
+  return(site_tpd)
+  
+  }
+
+
+registerDoSEQ()
+closeAllConnections()
+
+
+write_rds("outputs/alpha_diversity_site_tpds.rds", x = alpha_TPD_list)
+
+```
+
+Great that's alpha TPD's computed! Let's move onto the pairwise comparisons within studies which are a little bit more involved.
+
+## Beta diversity TPD computation
+
+The functional intactness index is a measure that quantifies the amount of remaining functional diversity within communities compared to in Primary habitat. one part of that is to compare the functional similarity of communities in primary habitat to those in other land uses. So first step of the beta comparisons to to set up the site comparisons.
+
+Within PREDICTS there are two types of primary vegetation: forest and non-forest. Therefore, this demonstrates the need for two different baselines depending on whether we are comparing bird communities to those in forest or non-forest primary habitat. If enough data was available our baselines would also be of minimal use intensity however, PREDICTS does not contain enough Primary non-forest minimal use sites so for the non forest baseline I have lumped minimal and light use intensities together to form a low use intensity which will be our baseline. Primary forest can proceed comparing to minimal use.
+
+```{r}
+
+
+## empty dataframe
+site_comparisons <- c()
+
+## as we are going to be comparing sites within studys we loop around study 
+
+studies <- unique(PREDICTS$SS)
+
+for (study in studies) {
+  
+  ## extract the primary forest minimal use sites 
+  for_min_study_sites <-
+    TPD_data %>% dplyr::filter(SS == study, LUI == "Primary forest_Minimal use") %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
+  
+  ## extarct the primary non-forest sites 
+  for_non_min_study_sites <-
+    TPD_data %>% dplyr::filter(
+      SS == study,
+      LUI %in% c(
+        "Primary non-forest_Minimal use",
+        "Primary non-forest_Light use"
+      )
+    ) %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
+  
+  
+  ### extract all site including primary forest and non forest 
+  all_study_sites <-
+    TPD_data %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
+  
+  ## if there are no primary sites in the study skip to the next study 
+  
+  if (is_empty(for_min_study_sites) &
+      is_empty(for_non_min_study_sites)) {
+    next()
+  }
+  
+  ## create data frame to store comparisons
+  comparisons <- c()
+  
+  ## if primary forest minmal sites is not empty get comparisons between that site and all others
+  if (!is_empty(for_min_study_sites)) {
+    
+    ### get all the permuatations between the study sites and filter for the primary minimal sites in the first comparison
+    
+    
+    for_min_comparisons <-
+      t(apply(
+        gtools::permutations(n = length(all_study_sites), r = 2),
+        MARGIN = 1,
+        FUN = function(x)
+          matrix(c(all_study_sites[x[1]], all_study_sites[x[2]]))
+      )) %>%
+      data.frame() %>% set_colnames(c("site1", "site2")) %>% dplyr::filter(site1 != site2) %>% data.frame() %>% dplyr::filter(site1 %in% for_min_study_sites)
+    
+    
+    comparisons <- rbind(comparisons, for_min_comparisons)
+  }
+  
+  ## likewise for the primary non-forest sites 
+  
+  if (!is_empty(for_non_min_study_sites)) {
+   
+    
+    for_non_min_comparisons <-
+      t(apply(
+        gtools::permutations(n = length(all_study_sites), r = 2),
+        MARGIN = 1,
+        FUN = function(x)
+          matrix(c(all_study_sites[x[1]], all_study_sites[x[2]]))
+      )) %>%
+      data.frame() %>% set_colnames(c("site1", "site2")) %>% dplyr::filter(site1 != site2) %>% data.frame() %>% dplyr::filter(site1 %in% for_non_min_study_sites)
+    
+    
+    comparisons <- rbind(comparisons, for_non_min_comparisons)
+  }
+  
+  
+  
+  #### for the modelling we are also going to need a lot of other information that we can gather from PREDICTS including latitude and longitude of both sites - to calculate geographic and environmental distance 
+  
+  
+  comparisons$land_use_combination <-
+    apply(
+      comparisons,
+      MARGIN = 1 ,
+      FUN =  function(x)
+        paste(unique(TPD_data$LUI[TPD_data$SSBS == x[1]]), "-", unique(TPD_data$LUI[TPD_data$SSBS == x[2]]))
+    )
+  
+  
+  comparisons$site1Latitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Latitude[TPD_data$SSBS == x[1]]))
+    )
+  
+  
+  comparisons$site1Longitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Longitude[TPD_data$SSBS == x[1]]))
+    )
+  
+  
+  comparisons$site2Latitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Latitude[TPD_data$SSBS == x[2]]))
+    )
+  
+  
+  comparisons$site2Longitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Longitude[TPD_data$SSBS == x[2]]))
+    )
+  
+  ## the study it came from 
+  
+  comparisons$SS <- study
+  
+  ## bind all together 
+  
+  site_comparisons <- rbind(site_comparisons, comparisons)
+  
+}
+
+table(site_comparisons$land_use_combination)
+
+```
+
+Now we have all the relevant comparisons that we want to compare trait spaces between we need to compute TPDs for each community can compare them and this is done by calculating the degree of overlap between the hypervolumes and how similar the probability of occupancy is in the regions that do overlap. I have a function already that does this which gives you three measures:
+
+1\) dissimilarity - overall degree of overlap
+
+2\) shared - portion of this dissimlarity which is attributed to difference in the shared regions
+
+3\) non-shared - portion of the dissimilarity that is attributed to differences in regions not shared.
+
+again this is done in parallel to save computation
+
+```{r}
+plan(multicore(workers = detectCores() - 1))
+
+
+
+
+site_comparisons[, c("dissimilarity", "beta_shared", "beta_non_shared")] <-
+  t(future.apply::future_apply(
+    site_comparisons,
+    MARGIN = 1,
+    FUN = function(x)
+      unlist(
+        get_beta_diversity(
+          site_one = x[1],
+          site_two = x[2],
+          study = x[,8],
+          predicts = TPD_data,
+          traits = trait_list
+        )
+      )
+  ))
+
+
+closeAllConnections()
+
+write_rds(file = "outputs/beta_diversity_dataframe.rds", x = site_comparisons)
+```
+
+Great now have our alpha and beta diversity TPDs very for processing.

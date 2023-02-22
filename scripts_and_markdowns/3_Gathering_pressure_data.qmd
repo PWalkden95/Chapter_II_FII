@@ -1,0 +1,580 @@
+---
+title: "Gathering_pressure_data_for_analyses"
+author: "Patrick Alexander Walkden"
+format: html
+editor: visual
+---
+
+## Gathering pressure data for modelling and alpha diversity measures
+
+For modelling we need to gather together other variables that we think are also going to impact a bird communities functional diversity and similarity to primary habitat communities. These include:
+
+1\) Human population density
+
+2\) Density of roads
+
+3\) Percentage of landscape that is natural
+
+4\) Time since 30% of the landscape was converted to human-use - This is somewhat arbitary and I will at some point try different percentages maybe a sensitivity analysis.
+
+```{r}
+rm(list = ls())
+
+require(tidyverse) ## data wrangling
+require(geosphere) ## calculating distances
+require(future) ## parallelisation
+require(future.apply) ## ditto
+require(terra) ## spatial analysis
+
+```
+
+## Load in data
+
+for this we are going to need PREDICTS, the alpha diversity hypervolumes, beta diversity dataframe and heaps of rasters that show global presssures (but we'll get onto that later).
+
+We'll do this in sections so first up, alpha diversity data.
+
+```{r}
+
+## Load in PREDICTS
+
+PREDICTS <-
+  readRDS("../data/refined_predicts.rds")  %>%
+  dplyr::filter(Predominant_habitat != "Cannot decide") %>%
+  dplyr::mutate(Predominant_habitat = ifelse(
+    grepl(
+      Predominant_habitat,
+      pattern = "secondary",
+      ignore.case = TRUE
+    ),
+    "Secondary vegetation",
+    paste(Predominant_habitat)
+  ))  %>% dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_"))
+
+
+```
+
+for the modelling for FII we won't need all the information within PREDICTS so I am only going to select study, site, longitude,latitude, land use intensity, and sampling start date (to know when to extract pressure data).
+
+With that I then need to load in global rasters for the pressure we are going to extract for the years that sampling had taken place.
+
+## Extracting pressure data from global rasters
+
+```{r}
+
+## slecting relavnt PREDICTS coloumns
+
+PREDICTS_coords <-
+  PREDICTS %>% dplyr::distinct(
+    SS,
+    SSBS,
+    Longitude,
+    Latitude,
+    LUI,
+    Use_intensity,
+    Sample_start_earliest
+  ) %>% dplyr::distinct(SSBS, .keep_all = TRUE)
+
+
+
+
+years_to_extract <- unique(substr(PREDICTS_coords$Sample_start_earliest,1,4))
+
+years_to_extract
+
+PREDICTS_coords$year <- substr(PREDICTS_coords$Sample_start_earliest,1,4)
+
+
+### so we want some data that Andu has extracted for the PREDICTS sites so we can get
+
+# Human population density - log_hpd_1km
+# road density 10 km - road_density and log roads
+# proportion of natural habitat nat_hab2 / nat_hab_sw
+# time since 30 % of the land was converted to human use - T30 / log_T30
+
+## so lets grab those columns
+
+## the only rasters that we do not have for hpd, nat hab is for 1993,1994, and 1999 - so a potential solution is to fit a linear regression to the pressure trends between 2000 and 2020 and extrapolate back. orr..... just extarct for the year 2000 
+
+## additionally roads is just s static layer so remains constant 
+
+hpd_2000 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2000.tif")
+hpd_2001 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2001.tif")
+hpd_2002 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2002.tif")
+hpd_2003 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2003.tif")
+hpd_2004 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2004.tif")
+hpd_2005 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2005.tif")
+hpd_2006 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2006.tif")
+hpd_2007 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2007.tif")
+hpd_2008 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2008.tif")
+hpd_2009 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2009.tif")
+hpd_2010 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2010.tif")
+hpd_2011 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2011.tif") 
+hpd_2012 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2012.tif")
+hpd_2013 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2013.tif")
+hpd_2014 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2014.tif")
+hpd_2015 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2015.tif")
+hpd_2016 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2016.tif")
+hpd_2017 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2017.tif")
+hpd_2018 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2018.tif")
+hpd_2019 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2019.tif")
+hpd_2020 <- terra::rast("../data/projection_rasters/log_hpd/log_hpd_1km_2020.tif")
+
+
+## can work it out based on the year 
+
+T30_1993 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_1993.tif")
+T30_1994 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_1994.tif")
+T30_1999 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_1999.tif")
+T30_2000 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2000.tif")
+T30_2001 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2001.tif")
+T30_2002 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2002.tif")
+T30_2003 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2003.tif")
+T30_2004 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2004.tif")
+T30_2005 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2005.tif")
+T30_2006 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2006.tif")
+T30_2007 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2007.tif")
+T30_2008 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2008.tif")
+T30_2009 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2009.tif")
+T30_2010 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2010.tif")
+T30_2011 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2011.tif")
+T30_2012 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2012.tif")
+T30_2013 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2013.tif")
+T30_2014 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2014.tif")
+T30_2015 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2015.tif")
+T30_2016 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2016.tif")
+T30_2017 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2017.tif")
+T30_2018 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2018.tif")
+T30_2019 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2019.tif")
+T30_2020 <- terra::rast("../data/projection_rasters/year_30/log_years_since_30_2020.tif")
+
+## roads is a fixed layer so has no temporal element 
+
+roads_ras <- terra::rast("../data/projection_rasters/2000-rasters-for-projections/unformatted_rasters/log_road_density.tif")
+
+
+### nat hab sw
+
+nat_hab_2000 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2000.tif") 
+nat_hab_2001 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2001.tif")
+nat_hab_2002 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2002.tif")
+nat_hab_2003 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2003.tif")
+nat_hab_2004 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2004.tif")
+nat_hab_2005 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2005.tif")
+nat_hab_2006 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2006.tif")
+nat_hab_2007 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2007.tif")
+nat_hab_2008 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2008.tif")
+nat_hab_2009 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2009.tif")
+nat_hab_2010 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2010.tif")
+nat_hab_2011 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2011.tif")
+nat_hab_2012 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2012.tif")
+nat_hab_2013 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2013.tif")
+nat_hab_2014 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2014.tif")
+nat_hab_2015 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2015.tif")
+nat_hab_2016 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2016.tif")
+nat_hab_2017 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2017.tif")
+nat_hab_2018 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2018.tif")
+nat_hab_2019 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2019.tif")
+nat_hab_2020 <- terra::rast("../data/projection_rasters/nathabsw/NatHabSlidingWindow-2020.tif")
+
+
+
+
+
+## combine all rasters into a larger list
+
+pressure_rasters <- list("1993" = list(T30 = T30_1993,roads = roads_ras),
+                         "1994" = list(T30 = T30_1994,roads = roads_ras),
+                         "1999" = list(T30 = T30_1999,roads = roads_ras),
+                         "2000" = list(hpd =hpd_2000, T30 = T30_2000,roads = roads_ras, nat_hab = nat_hab_2000),
+                         "2001" = list(hpd =hpd_2001, T30 = T30_2001,roads = roads_ras, nat_hab = nat_hab_2001),
+                         "2002" = list(hpd =hpd_2002, T30 = T30_2002,roads = roads_ras, nat_hab = nat_hab_2002),
+                         "2003" = list(hpd =hpd_2003, T30 = T30_2003,roads = roads_ras, nat_hab = nat_hab_2003),
+                         "2004" = list(hpd =hpd_2004, T30 = T30_2004,roads = roads_ras, nat_hab = nat_hab_2004),
+                         "2005" = list(hpd =hpd_2005, T30 = T30_2005,roads = roads_ras, nat_hab = nat_hab_2005),
+                         "2006" = list(hpd =hpd_2006, T30 = T30_2006,roads = roads_ras, nat_hab = nat_hab_2006),
+                         "2007" = list(hpd =hpd_2007, T30 = T30_2007,roads = roads_ras, nat_hab = nat_hab_2007),
+                         "2008" = list(hpd =hpd_2008, T30 = T30_2008,roads = roads_ras, nat_hab = nat_hab_2008),
+                         "2009" = list(hpd =hpd_2009, T30 = T30_2009,roads = roads_ras, nat_hab = nat_hab_2009),
+                         "2010" = list(hpd =hpd_2010, T30 = T30_2010,roads = roads_ras, nat_hab = nat_hab_2010),
+                         "2011" = list(hpd =hpd_2011, T30 = T30_2011,roads = roads_ras, nat_hab = nat_hab_2011),
+                         "2012" = list(hpd =hpd_2012, T30 = T30_2012,roads = roads_ras, nat_hab = nat_hab_2012),
+                         "2013" = list(hpd =hpd_2013, T30 = T30_2013,roads = roads_ras, nat_hab = nat_hab_2013),
+                         "2014" = list(hpd =hpd_2014, T30 = T30_2014,roads = roads_ras, nat_hab = nat_hab_2014),
+                         "2015" = list(hpd =hpd_2015, T30 = T30_2015,roads = roads_ras, nat_hab = nat_hab_2015),
+                         "2016" = list(hpd =hpd_2016, T30 = T30_2016,roads = roads_ras, nat_hab = nat_hab_2016),
+                         "2017" = list(hpd =hpd_2017, T30 = T30_2017,roads = roads_ras, nat_hab = nat_hab_2017),
+                         "2018" = list(hpd =hpd_2018, T30 = T30_2018,roads = roads_ras, nat_hab = nat_hab_2018),
+                         "2019" = list(hpd =hpd_2019, T30 = T30_2019,roads = roads_ras, nat_hab = nat_hab_2019),
+                         "2020" = list(hpd =hpd_2020, T30 = T30_2020,roads = roads_ras, nat_hab = nat_hab_2020))
+
+
+## this is the function that will look at the trends for hpd and nat hab between 2000 and 2020 and then extrapolate back to the needed year 
+
+extrapolation_function <- function(data,pressure,year){
+   
+  
+  ## get the data for 2000 to 2020 at the site cell 
+  extrapolation_data <- c()
+    for(oyr in as.character(2000:2020)){
+      extrap_data <- terra::extract(pressure_rasters[[oyr]][[pressure]], y = yr_data[,c("Longitude","Latitude")])
+      
+      extrapolation_data <- cbind(extrapolation_data,extrap_data[,2])
+      
+    }
+    
+  ## then for each cell perform a liner model and then predict back 
+    extrap_values <- c()
+    for(row in 1:nrow(extrapolation_data)){
+      model_data <- data.frame(values = extrapolation_data[row,],
+                               year = 2000:2020)
+      
+      mod <- lm(values ~ year ,data = model_data)
+      
+      extrap_value <- as.numeric(predict(mod, newdata = data.frame(year = as.numeric(year))))
+      
+      
+      extrap_values <- c(extrap_values,extrap_value)
+    }
+    
+    ## retrun values 
+    
+    return(extrap_values)
+    
+}
+
+
+
+##this loop will gather all the pressure data for each site 
+
+pressure_data <- c()
+
+for(yr in years_to_extract){
+  
+  yr_data <- PREDICTS_coords %>% dplyr::filter(year == yr)
+  
+  if(yr %in% c("1993","1994","1999")){
+    
+    
+    hpd <- data.frame(extrapolation_function(data = yr_data, pressure = "hpd", year = yr))
+    
+     nat_hab <- data.frame(extrapolation_function(data = yr_data, pressure = "nat_hab", year = yr))
+    
+    
+  } else {
+    
+     hpd <- terra::extract(pressure_rasters[[yr]][["hpd"]], y = yr_data[,c("Longitude","Latitude")]) %>% 
+    dplyr::select(2)
+     
+      nat_hab <- terra::extract(pressure_rasters[[yr]][["nat_hab"]], y = yr_data[,c("Longitude","Latitude")]) %>%
+    dplyr::select(2)
+     
+  }
+  
+  
+  
+ 
+  
+  T30 <- terra::extract(pressure_rasters[[yr]][["T30"]], y = yr_data[,c("Longitude","Latitude")]) %>% 
+    dplyr::mutate(log_T30 = ifelse(is.na(log_T30), 0,log_T30)) %>% dplyr::select(2)
+  
+  
+  roads <- terra::extract(pressure_rasters[[yr]][["roads"]], y = yr_data[,c("Longitude","Latitude")]) 
+  
+  roads$grip4_tp1_dens_m_km2 <- ifelse(is.na(roads$grip4_tp1_dens_m_km2),0, roads$grip4_tp1_dens_m_km2)
+  roads <- roads %>% dplyr::select(2)
+  
+ 
+  
+  extract_data <- data.frame(SSBS = yr_data$SSBS, log_hpd_1km = hpd[,1],T30 = exp(T30[,1]) - 1, log_T30 = T30[,1],
+                             nat_hab_sw = nat_hab[,1], road_density = roads[,1], log_roads = log(roads[,1] + 1))
+  
+  pressure_data <- rbind(pressure_data, extract_data)
+  
+}
+
+
+####
+#### join the presssure data with the PREDICTS data 
+
+PREDICTS_sites <- PREDICTS_coords %>%
+  dplyr::left_join(pressure_data[, c(
+    "SSBS",
+    "log_hpd_1km",
+    "T30",
+    "log_T30",
+    "nat_hab_sw",
+    "road_density",
+    "log_roads"
+  )])
+
+
+```
+
+## Computing alpha diversity measures and controls
+
+In the analysis I'm going to look at two different measures of alpha diversity, functional richness of TPDs and RaosQ.
+
+Functional Richness of TPDs is less biased by outliers as it is calculated as the total volume of occupied cells within trait space as opposed to the volume of the minimum convex hull surrounding points. However, this method doesn't account for differences in the probability of occupancy in the cells, but the beta diversity measures will so FII will still be sensitive to difference in abundance in communities.
+
+RaosQ I also calculate as it is a measure of alpha diversity that is little affected by species richness and correlates with functional richness and divergence. RaosQ is also abundance(probability of occupancy) weighted.
+
+I think that functional richness will possibly work better for our purposes but it was worth calculating both
+
+Additionally,
+
+```{r}
+
+## load in alpha hypervolumes
+
+alpha_hypervolumes <-
+  readRDS("../outputs/alpha_diversity_site_tpds.rds")
+
+PREDICTS_sites <-
+  PREDICTS_sites %>% dplyr::filter(SSBS %in% names(alpha_hypervolumes))
+
+
+get_richness <- function(site) {
+  data <- alpha_hypervolumes[[site]]
+  cell_volume <- data$data$cell_volume
+  
+  FRich <- sum(data$TPDc$RelativeAbundance > 0) * cell_volume
+  
+  return(FRich)
+  
+}
+
+
+PREDICTS_sites$functional_richness <-
+  apply(
+    PREDICTS_sites,
+    MARGIN = 1,
+    FUN = function(x)
+      get_richness(x[1])
+  )
+
+
+####################
+################## Raos Q Calculation
+
+
+
+get_site_probabilities <- function(sites) {
+  evaluation_grid <-
+    alpha_hypervolumes[[sites[1]]]$data$evaluation_grid
+  
+  
+  for (site in sites) {
+    evaluation_grid[, site] <-
+      alpha_hypervolumes[[site]]$TPDc$RelativeAbundance
+    
+  }
+  
+  return(evaluation_grid)
+}
+
+
+
+all_sites <- names(alpha_hypervolumes)
+
+## or calcualte RaosQ within study - easier computationally as you dont have to generate the full distance
+## matrix --
+
+
+
+# get_raos <- function(study) {
+#   
+#   study_sites <-
+#     PREDICTS_sites %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>%
+#     as.character()
+#   
+#   
+#   site_probabilities <- get_site_probabilities(study_sites)
+#   
+#   
+#   probabilities <-
+#     as.matrix(site_probabilities[, c(4:ncol(site_probabilities))])
+#   
+#   colnames(probabilities) <- study_sites
+#   
+#   evaluation_grid <-
+#     site_probabilities[rowSums(probabilities) > 0, c(1:3)]
+#   
+#   probabilities <- t(probabilities[rowSums(probabilities) > 0,])
+#   rownames(probabilities) <- study_sites
+#   
+#   
+#   gow_dis <- sqrt(as.matrix(FD::gowdis(evaluation_grid)))
+#   
+#   distance_times_p1 <- probabilities %*% gow_dis
+#   
+#   d_times_p1_times_p2 <-
+#     rowSums(sweep(probabilities, 1, distance_times_p1, "*", check.margin = FALSE))
+#   
+#   # relative_raos_q <-
+#   #   d_times_p1_times_p2 / sum(d_times_p1_times_p2)
+#   # 
+#   
+#   raos_q <-
+#     data.frame(SSBS = rownames(probabilities), raosQ = d_times_p1_times_p2)
+#   
+#   return(raos_q)
+#   
+# }
+# 
+# 
+# studies <- unique(PREDICTS_sites$SS)
+# 
+# study_raos <- c()
+# for (study in studies) {
+#   study_raos <- rbind(study_raos, get_raos(study))
+# }
+
+### attach the raos q and calculate the control_hpd and density of roads
+
+PREDICTS_sites <- PREDICTS_sites %>%
+  #dplyr::left_join(study_raos) %>%
+  dplyr::group_by(SS) %>% dplyr::mutate(control_hpd = mean(log_hpd_1km),
+                                        control_roads = mean(log_roads),
+                                        relative_richness = functional_richness/sum(functional_richness)) %>%
+  dplyr::ungroup()
+
+
+write_rds(file = "../outputs/alpha_diversity_dataframe.rds", x = PREDICTS_sites)
+```
+
+## Beta-diversity pressures and controls
+
+In the previous beta-diversity computation we calculate the dissimilarity measures to save on computational power and memory so all we need to do is to gather the pressure data together while also calculate some control variables including geographic and environmental distances to account for distance decay in similarity of bird communities.
+
+```{r}
+
+## load in beta diveristy dataframe
+
+beta_diversity <- readRDS("../outputs/beta_diversity_dataframe.rds")
+
+
+## function to calculate geographic distance 
+
+geographic_distance <- function(site1lat,site1long,site2lat,site2long){
+  
+ dist <-  distHaversine(c(site1long,site1lat),c(site2long,site2lat))
+
+ return(dist)
+   
+}
+
+## run the function in parallel
+
+
+plan(multicore(workers = parallel::detectCores() - 1))
+
+
+beta_diversity$geographic_distance <-
+  future_apply(
+    beta_diversity,
+    MARGIN = 1,
+    FUN = function(x)
+      geographic_distance(site1lat = as.numeric(x[4]),
+                          site1long =  as.numeric(x[5]),
+                          site2lat = as.numeric(x[6]),
+                          site2long = as.numeric(x[7]))
+      )
+  
+
+
+closeAllConnections()
+
+
+#### next going to calculate environmental distances 
+
+#### environmental distance -- using what bioclimatic variables??
+
+# 5 - Max temperature of the warmest month 
+
+# 6 - Min temperature of the coldest month
+
+# 13 - Precipitation of the wettest month
+
+# 14 - precipitation of the driest month
+
+# Elevation - self explanatory 
+
+## these bioclimatic variables were used by de_palma et al in their caluclations of FII so I have just follwed that precedent
+
+
+bio_5 <- terra::rast("../../../Datasets/Environmental_Variables/wc2.1_30s_bio_5.tif")
+
+bio_6 <- terra::rast("../../../Datasets/Environmental_Variables/wc2.1_30s_bio_6.tif")
+
+bio_13 <- terra::rast("../../../Datasets/Environmental_Variables/wc2.1_30s_bio_13.tif")
+
+bio_14 <- terra::rast("../../../Datasets/Environmental_Variables/wc2.1_30s_bio_14.tif")
+
+bio_elevation <- terra::rast("../../../Datasets/Environmental_Variables/wc2.1_30s_elev.tif")
+
+site1_coords <- as.matrix(beta_diversity[,c("site1Longitude","site1Latitude")], ncol = 2)
+site2_coords <- as.matrix(beta_diversity[,c("site2Longitude","site2Latitude")], ncol = 2)
+
+site1_environmental_variables <- data.frame(bv5 = terra::extract(bio_5,site1_coords),
+                                            bv6 = terra::extract(bio_6,site1_coords),
+                                            bv13 = terra::extract(bio_13,site1_coords),
+                                            bv14 = terra::extract(bio_14,site1_coords),
+                                            ele = terra::extract(bio_elevation,site1_coords)
+                                            )
+
+
+site2_environmental_variables <- data.frame(bv5 = terra::extract(bio_5,site2_coords),
+                                            bv6 = terra::extract(bio_6,site2_coords),
+                                            bv13 = terra::extract(bio_13,site2_coords),
+                                            bv14 = terra::extract(bio_14,site2_coords),
+                                            ele = terra::extract(bio_elevation,site2_coords)
+)
+
+### calculate the gower distance between the environmental variables at each site 
+
+beta_diversity$environmental_distance <- gower::gower_dist(site1_environmental_variables,site2_environmental_variables)
+
+### if the environmental distance is Nan replace with 0 
+
+
+beta_diversity$environmental_distance <- ifelse(is.nan(beta_diversity$environmental_distance), 0, beta_diversity$environmental_distance)
+
+```
+
+Next we'll be adding on the pressure data and because we have extracted the data for the sites before it should already all be contained within the alpha diversity dataframe.\
+Additionally, it's not only the difference in pressure between the sites that may influence the degree of functional similarity it is also the absolute pressure at the second site therefore for each of hpd, roads, nat hab and time since thirty I will be including two measures of pressure.
+
+```{r}
+
+
+beta_data_pressures <-
+  beta_diversity %>% dplyr::left_join(PREDICTS_sites[, c(
+    "SSBS",
+    "log_hpd_1km",
+    "log_T30",
+    "nat_hab_sw",
+    "log_roads",
+    "control_hpd",
+    "control_roads"
+  )], by = c("site2" = "SSBS")) %>%
+  rename(
+    site2_log_hpd = log_hpd_1km,
+    site2_log_T30 = log_T30,
+    site2_nat_hab_sw = nat_hab_sw,
+    site2_log_roads = log_roads
+  ) %>%
+  dplyr::left_join(PREDICTS_sites[, c("SSBS", "log_hpd_1km", "log_T30", "nat_hab_sw", "log_roads")], by = c("site1" = "SSBS")) %>%
+  dplyr::mutate(
+    log_hpd_diff = site2_log_hpd - log_hpd_1km,
+    log_T30_diff = site2_log_T30 - log_T30,
+    nat_hab_diff = site2_nat_hab_sw - nat_hab_sw,
+    log_roads_diff = site2_log_roads - log_roads
+  )
+
+
+### save the data and we're ready to model 
+
+write_rds(file = "../outputs/beta_diversity_dataframe.rds", x = beta_data_pressures)
+
+```

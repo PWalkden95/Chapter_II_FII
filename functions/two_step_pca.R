@@ -2,8 +2,13 @@
 ## traits. 
 
 # INPUT: dataframe with species name and morphological traits.
+#OUTPUT: dataframe with the three meaningful axes of variation: locomotory, forgaing and size niche
 
 
+## the function can work with specimen data or just trait means. trait means just simple performs the 
+## two-step PCA on the trait values while dealing with the specimen data the function attempts to fill
+## in gaps in the specimen data (because it only takes full cases and we want to use as much of the information
+## as possible). To do this the value is filled in as the mean of all other available specimens.
 
 
 two_step_PCA <- function(dataframe, means = TRUE, 
@@ -16,17 +21,17 @@ two_step_PCA <- function(dataframe, means = TRUE,
   
   if(means) {
   
-  for_data <- prcomp(scale(log(dataframe[,foraging_traits])))
+  for_data <- prcomp(scale(log(dataframe[,foraging_traits]))) ## foraging PCA -- values scaled and logged before
   
   
-  loco_data <- prcomp(scale(log(dataframe[,locomotory_traits])))
+  loco_data <- prcomp(scale(log(dataframe[,locomotory_traits]))) ## locomotry PCA -- values scaled and logged before
   
   
-  body_size_pc <- prcomp(data.frame(for_data$x[,1],loco_data$x[,1])) 
+  body_size_pc <- prcomp(data.frame(for_data$x[,1],loco_data$x[,1]))  ## PCA on PC1 of ecah previous PCA
     
   
   
-  pca_data <- data.frame(Birdlife_Name = dataframe[,1], 
+  pca_data <- data.frame(Birdlife_Name = dataframe[,1], ### combine 
                          foraging = for_data$x[,2], 
                          locomotory = loco_data$x[,2],
                          body_size = body_size_pc$x[,1])
@@ -36,7 +41,7 @@ return(pca_data)
   
   
   
-  drop_rows <- c()
+  drop_rows <- c() #### rows where specimens have no trait information so drop 
   for(i in 1:nrow(dataframe)){
     if(all(is.na(dataframe[i,-1]))){
       drop_rows <- c(drop_rows,i)  
@@ -53,8 +58,8 @@ return(pca_data)
   ## we will insert the mean value of the other specimens.
   
     for(trait in c(foraging_traits,locomotory_traits)){
-    
-    data <- dataframe %>% select(Birdlife_Name,all_of(trait))
+        
+    data <- dataframe %>% dplyr::select(Birdlife_Name,all_of(trait))
     
     na_sp <- unique(data[is.na(data[,2]),1])
   
@@ -70,7 +75,7 @@ return(pca_data)
   }
   
   ## okay now that we have the imputed data -- I don't know whether it's the best way but it's been done.
-  ## then it is how we work with the differential number of specimens. This will actuall be done later
+  ## then it is how we work with the differential number of specimens. This will actually be done later
   ## just do the two-step bit for now.
   
   
@@ -79,6 +84,8 @@ return(pca_data)
   dataframe <- dataframe %>% na.omit() %>% dplyr::group_by(Birdlife_Name) %>%
     dplyr::mutate(number_of_specimens = n())
   
+  
+  ### then do PCA as previous
   
   for_data <- prcomp(scale(log(dataframe[,foraging_traits])))
   

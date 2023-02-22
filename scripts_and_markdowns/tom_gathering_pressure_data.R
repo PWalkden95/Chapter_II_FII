@@ -10,12 +10,14 @@ require(geosphere)
 require(future)
 require(future.apply)
 
+drop_species <- readRDS("data/assembly_drop_spp.rds")
+
 
 
 
 
 PREDICTS <-
-  readRDS("data/refined_predicts.rds")  %>%
+  readRDS("data/tom_refined_data.rds")  %>%
   dplyr::filter(Predominant_habitat != "Cannot decide") %>%
   dplyr::mutate(Predominant_habitat = ifelse(
     grepl(
@@ -25,10 +27,26 @@ PREDICTS <-
     ),
     "Secondary vegetation",
     paste(Predominant_habitat)
-  ))  %>% dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_"))
+  )) %>% dplyr::filter(!(Birdlife_Name %in% drop_species)) %>% dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_"))
 
 
 
+
+
+
+
+# Derived traits from the two-step PCA analysis
+
+
+trait_list <- readRDS("outputs/traits_without_foraging_list_tom.rds")
+
+
+
+all_sites <-
+  PREDICTS %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
+
+
+pressure_data <- readRDS("data/AllSites_pressures.rds")
 
 
 
@@ -223,7 +241,7 @@ PREDICTS_sites <- PREDICTS_coords %>%
 ### would be good to also calculate a measure of rao's q using the hypervolumes too.
 
 alpha_hypervolumes <-
-  readRDS("outputs/alpha_diversity_site_tpds.rds")
+  readRDS("outputs/alpha_diversity_site_tpds_tom.rds")
 
 PREDICTS_sites <-
   PREDICTS_sites %>% dplyr::filter(SSBS %in% names(alpha_hypervolumes))
@@ -245,7 +263,7 @@ PREDICTS_sites$functional_richness <-
     PREDICTS_sites,
     MARGIN = 1,
     FUN = function(x)
-      get_richness(x[1])
+      get_richness(x[2])
   )
 
 ##### actually let's ignore rao for now that will have to be done on the HPC... and calculated with sites
@@ -274,65 +292,68 @@ all_sites <- names(alpha_hypervolumes)
 
 
 
-# get_raos <- function(study) {
-#   
-#   study_sites <-
-#     PREDICTS_sites %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>%
-#     as.character()
-#   
-#   
-#   site_probabilities <- get_site_probabilities(study_sites)
-#   
-#   
-#   probabilities <-
-#     as.matrix(site_probabilities[, c(4:ncol(site_probabilities))])
-#   
-#   colnames(probabilities) <- study_sites
-#   
-#   evaluation_grid <-
-#     site_probabilities[rowSums(probabilities) > 0, c(1:3)]
-#   
-#   probabilities <- t(probabilities[rowSums(probabilities) > 0,])
-#   rownames(probabilities) <- study_sites
-#   
-#   
-#   gow_dis <- sqrt(as.matrix(FD::gowdis(evaluation_grid)))
-#   
-#   distance_times_p1 <- probabilities %*% gow_dis
-#   
-#   d_times_p1_times_p2 <-
-#     rowSums(sweep(probabilities, 1, distance_times_p1, "*", check.margin = FALSE))
-#   
-#   # relative_raos_q <-
-#   #   d_times_p1_times_p2 / sum(d_times_p1_times_p2)
-#   # 
-#   
-#   raos_q <-
-#     data.frame(SSBS = rownames(probabilities), raosQ = d_times_p1_times_p2)
-#   
-#   return(raos_q)
-#   
-# }
-# 
-# 
-# studies <- unique(PREDICTS_sites$SS)
-# 
-# study_raos <- c()
-# for (study in studies) {
-#   study_raos <- rbind(study_raos, get_raos(study))
-# }
+get_raos <- function(study) {
+  
+  study_sites <-
+    PREDICTS_sites %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>%
+    as.character()
+  
+  
+  site_probabilities <- get_site_probabilities(study_sites)
+  
+  
+  probabilities <-
+    as.matrix(site_probabilities[, c(4:ncol(site_probabilities))])
+  
+  colnames(probabilities) <- study_sites
+  
+  evaluation_grid <-
+    site_probabilities[rowSums(probabilities) > 0, c(1:3)]
+  
+  probabilities <- t(probabilities[rowSums(probabilities) > 0,])
+  rownames(probabilities) <- study_sites
+  
+  
+  gow_dis <- sqrt(as.matrix(FD::gowdis(evaluation_grid)))
+  
+  distance_times_p1 <- probabilities %*% gow_dis
+  
+  d_times_p1_times_p2 <-
+    rowSums(sweep(probabilities, 1, distance_times_p1, "*", check.margin = FALSE))
+  
+  # relative_raos_q <-
+  #   d_times_p1_times_p2 / sum(d_times_p1_times_p2)
+  # 
+  
+  raos_q <-
+    data.frame(SSBS = rownames(probabilities), raosQ = d_times_p1_times_p2)
+  
+  return(raos_q)
+  
+}
+
+
+studies <- unique(PREDICTS_sites$SS)
+
+study_raos <- c()
+for (study in studies) {
+  study_raos <- rbind(study_raos, get_raos(study))
+}
 
 ### attach the raos q and calculate the control_hpd and density of roads
 
 PREDICTS_sites <- PREDICTS_sites %>%
-  #dplyr::left_join(study_raos) %>%
+  dplyr::left_join(study_raos) %>%
   dplyr::group_by(SS) %>% dplyr::mutate(control_hpd = mean(log_hpd_1km),
                                         control_roads = mean(log_roads),
                                         relative_richness = functional_richness/sum(functional_richness)) %>%
   dplyr::ungroup()
 
 
-write_rds(file = "outputs/alpha_diversity_dataframe.rds", x = PREDICTS_sites)
+PREDICTS_sites <- PREDICTS_sites %>% dplyr::mutate(LUI = ifelse((grepl(SS,pattern = "GN1_2010__Hvenegaard 1")|grepl(SS,pattern = "GN1_2010__Hvenegaard 2"))&LUI == "Cropland_Cannot decide",
+                                                                                 "Cropland_Light use", paste(LUI)))
+
+write_rds(file = "outputs/alpha_diversity_dataframe_tom.rds", x = PREDICTS_sites)
 
 
 
@@ -341,7 +362,7 @@ write_rds(file = "outputs/alpha_diversity_dataframe.rds", x = PREDICTS_sites)
 ######################################
 
 
-beta_data <- readRDS("outputs/beta_diversity_dataframe.rds")
+beta_data <- readRDS("outputs/beta_diversity_dataframe_tom.rds")
 
 beta_data <- beta_data[,c(1:13)]
 
@@ -376,4 +397,12 @@ beta_data_pressures <-
     log_roads_diff = site2_log_roads - log_roads
   )
 
-write_rds(file = "outputs/beta_diversity_dataframe.rds", x = beta_data_pressures)
+beta_data_pressures <- beta_data_pressures %>% dplyr::mutate(land_use_combination = ifelse((grepl(SS,pattern = "GN1_2010__Hvenegaard 1")|grepl(SS,pattern = "GN1_2010__Hvenegaard 2"))&land_use_combination == "Primary forest_Minimal use - Cropland_Cannot decide",
+                                                    "Primary forest_Minimal use - Cropland_Light use", paste(land_use_combination)))
+
+beta_data_pressures <- beta_data_pressures %>% dplyr::mutate(land_use_combination = ifelse((grepl(SS,pattern = "GN1_2010__Hvenegaard 1")|grepl(SS,pattern = "GN1_2010__Hvenegaard 2"))&(land_use_combination == "Primary non-forest_Minimal use - Cropland_Cannot decide"|
+                                                                                                                                                                                          land_use_combination == "Primary non-forest_Light use - Cropland_Cannot decide"),
+                                                                                           "Primary non-forest_Low use - Cropland_Light use", paste(land_use_combination)))
+
+write_rds(file = "outputs/beta_diversity_dataframe_tom.rds", x = beta_data_pressures)
+

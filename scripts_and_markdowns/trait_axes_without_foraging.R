@@ -22,10 +22,10 @@ require(TPD)
 
 drop_species <- readRDS("data/assembly_drop_spp.rds")
 
-
 PREDICTS <-
-  readRDS("data/refined_predicts.rds") %>%
-  dplyr::filter(!(Predominant_habitat %in% c("Primary non-forest", "Cannot decide"))) %>%
+  readRDS("data/refined_predicts.rds")  %>%
+  dplyr::filter(
+    Predominant_habitat != "Cannot decide") %>%
   dplyr::mutate(
     Predominant_habitat = ifelse(
       grepl(
@@ -35,27 +35,8 @@ PREDICTS <-
       ),
       "Secondary vegetation",
       paste(Predominant_habitat)
-    ),
-    Predominant_habitat = ifelse(
-      grepl(
-        Predominant_habitat,
-        pattern = "primary",
-        ignore.case = TRUE
-      ),
-      "Primary vegetation",
-      paste(Predominant_habitat)
-    ),
-    Predominant_habitat = ifelse(
-      grepl(
-        Predominant_habitat,
-        pattern = "primary",
-        ignore.case = TRUE
-      ) &
-        Use_intensity == "Minimal use",
-      "Primary minimal",
-      paste(Predominant_habitat)
     )
-  ) %>% dplyr::filter(!(Birdlife_Name %in% drop_species))
+  )  %>% dplyr::mutate(LUI = paste(Predominant_habitat,Use_intensity, sep = "_"))
 
 
 
@@ -85,6 +66,24 @@ species_specimens <- species_specimens[,c("Species1_BirdLife",foraging_traits,lo
 two_step_dataframe <- two_step_PCA(dataframe = species_specimens, means = FALSE,
                                    foraging_traits = foraging_traits,
                                    locomotory_traits = locomotory_traits)
+
+
+
+#### just the mean trait values 
+
+
+PREDICTS_means <- PREDICTS %>% dplyr::distinct(Birdlife_Name, .keep_all = TRUE) %>%
+  dplyr::select(all_of(c("Birdlife_Name",foraging_traits,locomotory_traits)))
+
+
+
+two_step_mean <- two_step_PCA(dataframe = PREDICTS_means, means = TRUE,
+                              foraging_traits = foraging_traits,
+                              locomotory_traits = locomotory_traits)
+
+
+write_rds(file = "outputs/mean_traits.rds", x = two_step_mean)
+
 
 ## great so thats the three "meaning axes" calculated for each specimen, the nets step concerns how this specimen
 ## data is used to compute trait probability density functions (TPDs). 

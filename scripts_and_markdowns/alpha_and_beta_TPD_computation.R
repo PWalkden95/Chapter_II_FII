@@ -10,6 +10,7 @@ require(doParallel)
 require(gtools)
 require(future)
 require(future.apply)
+require(magrittr)
 
 
 source("functions/TPD_computation_functions.R")
@@ -22,39 +23,25 @@ source("functions/TPD_computation_functions.R")
 drop_species <- readRDS("data/assembly_drop_spp.rds")
 
 
+
 PREDICTS <-
-  readRDS("data/refined_predicts.rds") %>%
-  dplyr::filter(!(Predominant_habitat %in% c("Primary non-forest", "Cannot decide"))) %>%
-  dplyr::mutate(
-    Predominant_habitat = ifelse(
-      grepl(
-        Predominant_habitat,
-        pattern = "secondary",
-        ignore.case = TRUE
-      ),
-      "Secondary vegetation",
-      paste(Predominant_habitat)
+  readRDS("data/refined_predicts.rds")  %>%
+
+  dplyr::filter(Predominant_habitat != "Cannot decide"
+                & Use_intensity != "Cannot decide") %>%
+  dplyr::mutate(Predominant_habitat = ifelse(
+    grepl(
+      Predominant_habitat,
+      pattern = "secondary",
+      ignore.case = TRUE
     ),
-    Predominant_habitat = ifelse(
-      grepl(
-        Predominant_habitat,
-        pattern = "primary",
-        ignore.case = TRUE
-      ),
-      "Primary vegetation",
-      paste(Predominant_habitat)
-    ),
-    Predominant_habitat = ifelse(
-      grepl(
-        Predominant_habitat,
-        pattern = "primary",
-        ignore.case = TRUE
-      ) &
-        Use_intensity == "Minimal use",
-      "Primary minimal",
-      paste(Predominant_habitat)
-    )
-  ) %>% dplyr::filter(!(Birdlife_Name %in% drop_species))
+    "Secondary vegetation",
+    paste(Predominant_habitat)
+  )) %>% dplyr::filter(!(Birdlife_Name %in% drop_species)) %>% dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_"))
+
+#%>% dplyr::mutate(LUI = paste(Predominant_habitat, Use_intensity, sep = "_"))
+
+
 
 # Derived traits from the two-step PCA analysis
 
@@ -119,7 +106,7 @@ alpha_TPD_list <- foreach(study = studies,
   
   species <- TPD_data %>% dplyr::filter(SS == study) %>% dplyr::distinct(Birdlife_Name) %>% pull()
 
-  trait_ranges <- get_species_trait_ranges(species = species, traits = trait_list, range = 0.05)
+  trait_ranges <- get_species_trait_ranges(species = species, traits = trait_list, range = 0.025)
   
   sites <- TPD_data %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
   
@@ -156,7 +143,7 @@ registerDoSEQ()
 closeAllConnections()
 
 
-readRDS("outputs/alpha_diversity_site_tpds.rds", x = alpha_TPD_list)
+write_rds("outputs/alpha_diversity_site_tpds.rds", x = alpha_TPD_list)
 
 ###############################
 ###############################
@@ -170,30 +157,118 @@ readRDS("outputs/alpha_diversity_site_tpds.rds", x = alpha_TPD_list)
 
 site_comparisons <- c()
 
-for(study in studies){
+for (study in studies) {
+  for_min_study_sites <-
+    TPD_data %>% dplyr::filter(SS == study, LUI == "Primary forest_Minimal use") %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
   
-  study_sites <- TPD_data %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
+  for_non_min_study_sites <-
+    TPD_data %>% dplyr::filter(
+      SS == study,
+      LUI %in% c(
+        "Primary non-forest_Minimal use",
+        "Primary non-forest_Light use"
+      )
+    ) %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
   
-  comparisons <- gtools::combinations(n = length(study_sites), r = 2,v = study_sites) %>% data.frame()
+  all_study_sites <-
+    TPD_data %>% dplyr::filter(SS == study) %>% dplyr::distinct(SSBS) %>% pull() %>% as.character()
   
-  colnames(comparisons) <- c("site1","site2")
+  if (is_empty(for_min_study_sites) &
+      is_empty(for_non_min_study_sites)) {
+    next()
+  }
   
-  comparisons$land_use_combination <-   apply(comparisons,MARGIN = 1 ,FUN =  function(x) paste(unique(TPD_data$Predominant_habitat[TPD_data$SSBS == x[1]]),"-",unique(TPD_data$Predominant_habitat[TPD_data$SSBS == x[2]])))
-  comparisons$site1Latitude <- apply(comparisons, MARGIN = 1, FUN = function(x) unique(TPD_data$Latitude[TPD_data$SSBS == x[1]]))
-  comparisons$site1Longitude <- apply(comparisons, MARGIN = 1, FUN = function(x) unique(TPD_data$Longitude[TPD_data$SSBS == x[1]]))
-  comparisons$site2Latitude <- apply(comparisons, MARGIN = 1, FUN = function(x) unique(TPD_data$Latitude[TPD_data$SSBS == x[2]]))
-  comparisons$site2Longitude <- apply(comparisons, MARGIN = 1, FUN = function(x) unique(TPD_data$Longitude[TPD_data$SSBS == x[2]]))
   
-  comparisons$realm <- unique(as.character(TPD_data$Realm[TPD_data$SS == study]))
-  comparisons$UN_subregion <- unique(as.character(TPD_data$UN_subregion[TPD_data$SS == study]))
+  comparisons <- c()
+  if (!is_empty(for_min_study_sites)) {
+    sites_together <- c(for_min_study_sites, all_study_sites)
+    
+    for_min_comparisons <-
+      t(apply(
+        gtools::combinations(n = length(sites_together), r = 2),
+        MARGIN = 1,
+        FUN = function(x)
+          matrix(c(sites_together[x[1]], sites_together[x[2]]))
+      )) %>%
+      data.frame() %>% set_colnames(c("site1", "site2")) %>% dplyr::filter(site1 != site2) %>% data.frame() %>% dplyr::filter(site1 %in% for_min_study_sites)
+    
+    
+    comparisons <- rbind(comparisons, for_min_comparisons)
+  }
+  
+  if (!is_empty(for_non_min_study_sites)) {
+    sites_together <- c(for_non_min_study_sites, all_study_sites)
+    
+    for_non_min_comparisons <-
+      t(apply(
+        gtools::combinations(n = length(sites_together), r = 2),
+        MARGIN = 1,
+        FUN = function(x)
+          matrix(c(sites_together[x[1]], sites_together[x[2]]))
+      )) %>%
+      data.frame() %>% set_colnames(c("site1", "site2")) %>% dplyr::filter(site1 != site2) %>% data.frame() %>% dplyr::filter(site1 %in% for_non_min_study_sites)
+    
+    
+    comparisons <- rbind(comparisons, for_non_min_comparisons)
+  }
+  
+  
+  
+  
+  
+  comparisons$land_use_combination <-
+    apply(
+      comparisons,
+      MARGIN = 1 ,
+      FUN =  function(x)
+        paste(unique(TPD_data$LUI[TPD_data$SSBS == x[1]]), "-", unique(TPD_data$LUI[TPD_data$SSBS == x[2]]))
+    )
+  comparisons$site1Latitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Latitude[TPD_data$SSBS == x[1]]))
+    )
+  comparisons$site1Longitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Longitude[TPD_data$SSBS == x[1]]))
+    )
+  comparisons$site2Latitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Latitude[TPD_data$SSBS == x[2]]))
+    )
+  comparisons$site2Longitude <-
+    apply(
+      comparisons,
+      MARGIN = 1,
+      FUN = function(x)
+        mean(unique(TPD_data$Longitude[TPD_data$SSBS == x[2]]))
+    )
+  
   comparisons$SS <- study
   
-  site_comparisons <- rbind(site_comparisons,comparisons)
+  site_comparisons <- rbind(site_comparisons, comparisons)
   
 }
 
 
-plan(multicore(workers = 8))
+site_comparisons <- cbind(site_comparisons,dissimilarity)
+
+table(site_comparisons$land_use_combination)
+
+
+
+
+
+plan(multicore(workers = 32))
+
 
 
 
@@ -218,6 +293,10 @@ closeAllConnections()
 
 write_rds(file = "outputs/beta_diversity_dataframe.rds", x = site_comparisons)
 
+
+site_comparisons <- readRDS("outputs/beta_diversity_dataframe_tom.rds")
+
+site_comparisons <- site_comparisons[,-c(12:25)]
 
 
 reorder_combinations <- function(string){
@@ -269,8 +348,43 @@ geographic_distance <- function(site1lat,site1long,site2lat,site2long){
 }
 
 
-site_comparisons$geographic_distance <-  apply(site_comparisons,MARGIN = 1, FUN = function(x) geographic_distance(site1lat = as.numeric(x[4]), site1long = as.numeric(x[5]), site2lat = as.numeric(x[6]), site2long = as.numeric(x[7])))
 
+
+
+for(i in 1:nrow(site_comparisons)){
+
+ site_comparisons$site1Latitude[i] <-  as.numeric(mean(unlist(site_comparisons[i,4])))
+ site_comparisons$site1Longitude[i] <-  as.numeric(mean(unlist(site_comparisons[i,5])))
+ site_comparisons$site2Latitude[i] <-  as.numeric(mean(unlist(site_comparisons[i,6])))
+ site_comparisons$site2Longitude[i] <-  as.numeric(mean(unlist(site_comparisons[i,7])))
+    
+
+ 
+}
+
+
+site_comparisons$site1Latitude <- as.numeric(site_comparisons$site1Latitude)
+site_comparisons$site2Latitude <- as.numeric(site_comparisons$site2Latitude)
+site_comparisons$site1Longitude <- as.numeric(site_comparisons$site1Longitude)
+site_comparisons$site2Longitude <- as.numeric(site_comparisons$site2Longitude)
+
+plan(multicore(workers = parallel::detectCores() - 1))
+
+
+site_comparisons$geographic_distance <-
+  future_apply(
+    site_comparisons,
+    MARGIN = 1,
+    FUN = function(x)
+      geographic_distance(site1lat = as.numeric(x[4]),
+                          site1long =  as.numeric(x[5]),
+                          site2lat = as.numeric(x[6]),
+                          site2long = as.numeric(x[7]))
+      )
+  
+
+
+closeAllConnections()
 
 #### environmental distance -- using what bioclimatic variables??
 
@@ -287,15 +401,15 @@ site_comparisons$geographic_distance <-  apply(site_comparisons,MARGIN = 1, FUN 
 require(terra)
 
 
-bio_5 <- raster("../../Datasets/Environmental_Variables/wc2.1_30s_bio_5.tif")
+bio_5 <- terra::rast("../../Datasets/Environmental_Variables/wc2.1_30s_bio_5.tif")
 
-bio_6 <- raster("../../Datasets/Environmental_Variables/wc2.1_30s_bio_6.tif")
+bio_6 <- terra::rast("../../Datasets/Environmental_Variables/wc2.1_30s_bio_6.tif")
 
-bio_13 <- raster("../../Datasets/Environmental_Variables/wc2.1_30s_bio_13.tif")
+bio_13 <- terra::rast("../../Datasets/Environmental_Variables/wc2.1_30s_bio_13.tif")
 
-bio_14 <- raster("../../Datasets/Environmental_Variables/wc2.1_30s_bio_14.tif")
+bio_14 <- terra::rast("../../Datasets/Environmental_Variables/wc2.1_30s_bio_14.tif")
 
-bio_elevation <- raster("../../Datasets/Environmental_Variables/wc2.1_30s_elev.tif")
+bio_elevation <- terra::rast("../../Datasets/Environmental_Variables/wc2.1_30s_elev.tif")
 
 site1_coords <- as.matrix(site_comparisons[,c("site1Longitude","site1Latitude")], ncol = 2)
 site2_coords <- as.matrix(site_comparisons[,c("site2Longitude","site2Latitude")], ncol = 2)
@@ -318,5 +432,7 @@ site2_environmental_variables <- data.frame(bv5 = terra::extract(bio_5,site2_coo
 site_comparisons$environmental_distance <-  gower::gower_dist(site1_environmental_variables,site2_environmental_variables)
 
 
-write_rds(file = "outputs/beta_diversity_dataframe.rds", x = site_comparisons)
+site_comparisons$environmental_distance <- ifelse(is.nan(site_comparisons$environmental_distance), 0, site_comparisons$environmental_distance)
+
+write_rds(file = "outputs/beta_diversity_dataframe_tom.rds", x = site_comparisons)
 

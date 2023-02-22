@@ -1,0 +1,308 @@
+---
+title: "Alpha_diversity_modelling"
+author: "Patrick Alexander Walkden"
+format: html
+editor: visual
+---
+
+## Functional Alpha diversity modelling
+
+Now let's get to the modelling. The functional intactness index is obtained as the product of a measure of alpha diversity and functional similarity. Here we take functional richness as a function of the PREDICTS land use and intensity classes and the other associated pressures including human population density, road density ( at 10km), time since 30% converted to human modified land uses, percentage of the landscape that is natural habitat using generalized linear mixed effects models (GLMMs).
+
+```{r}
+
+rm(list = ls())
+
+require(tidyverse) ## data manipulation
+require(car) ## post-hoc model analyses
+require(lme4) # modelling generalised linear mixed effects models
+require(lmerTest) ## model scrutiny
+require(ggResidpanel) ## model scrutiny 
+require(sjPlot) ## visulise interactions
+require(sjmisc) ## ditto
+```
+
+## Load in data
+
+Load in data what we will need is just the alpha diversity dataframe that we collated together in the previous markdown with all the pressures and relevant information that we need to get to modelling.
+
+Hvengaard has two studies within the data so I filter out for one of the studies and keep the one that surveys the bird community more completely.
+
+```{r}
+
+alpha_data <- readRDS("../outputs/alpha_diversity_dataframe.rds") %>% dplyr::filter(SS != "GN1_2010__Hvenegaard 2")
+
+table(alpha_data$LUI)
+```
+
+We can see the distribution of the land use and intensity classes of the available sites, it looks like here that Cropland intense use has too few sites to make a reliable estimation of it's impact on functional richness therefore I will combine them together with Cropland Light use to make a category of Cropland High use. I also combine urban sites together because ... Andy had a good reason
+
+```{r}
+
+### merge together some land use classes and filter out those sites that we cannot decide what land use intensity it falls under
+alpha_data <- alpha_data %>% dplyr::mutate(LUI = ifelse(grepl(LUI, pattern = "Urban"), "Urban", LUI),
+                                            LUI = ifelse(grepl(LUI, pattern = "Cropland_Intense use")|
+                                                           grepl(LUI, pattern = "Cropland_Light use"), "Cropland_High use", LUI)
+                                           ) %>%
+  dplyr::filter(!grepl(LUI , pattern = "Cannot decide"))
+
+
+## make LUI a fcator for modelling
+
+alpha_data$LUI <- factor(alpha_data$LUI)
+
+## get the levels in the correct order
+
+land_use_levels <- c("Primary forest_Minimal use","Primary forest_Light use","Primary forest_Intense use",
+                     "Primary non-forest_Minimal use","Primary non-forest_Light use", "Primary non-forest_Intense use",
+                     "Secondary vegetation_Minimal use","Secondary vegetation_Light use","Secondary vegetation_Intense use",
+                     "Plantation forest_Minimal use","Plantation forest_Light use","Plantation forest_Intense use",
+                     "Pasture_Minimal use","Pasture_Light use","Pasture_Intense use",
+                     "Cropland_Minimal use", "Cropland_High use",
+                     "Urban")
+
+## relvel LUI factor
+alpha_data$LUI <- factor(alpha_data$LUI, levels = land_use_levels)
+
+
+
+table(alpha_data$LUI)
+
+```
+
+## Transformations, colinearity and scaling
+
+Before modelling it is good practice to assess the distribution of both the predictor and response variables and to transform them if necessary. Fortunately, the predictor variables have been transformed pre-extraction so it just leaves us to have a look at functional richness.
+
+However, with the predictor variables we will have to check whether there is any colinearity because if there is each variable will be trying to explain the same thing and the variation each explains may be split leading to some unreliable and misleading results.
+
+```{r}
+
+## start with functional richness
+hist(alpha_data$functional_richness)
+
+## yeha that needs a transformation
+
+hist(log(alpha_data$functional_richness))
+hist(sqrt(alpha_data$functional_richness))
+
+## logging it looks much better as compared to square rooting
+
+alpha_data$logRich <- log(alpha_data$functional_richness) 
+
+
+
+## load in package that has functions that has a look at the variance inflation factors of predictor variables - a score less than 10, but ideally 3 means there is little colinearity and modelling is good to continue.
+
+source("https://highstat.com/Books/Book2/HighstatLibV10.R")
+corvif(alpha_data[,c( "LUI", "log_hpd_1km", "log_roads","nat_hab_sw" ,"log_T30")])
+
+## brilliant our variables are not colinear.
+```
+
+Brilliant there is no colinearity in the predictor variables, and finally before modelling it is good to scale the predictor variables to a mean of zero and a sd of 2 (instead of the usual 1), this enables better interpretation of the results.
+
+```{r}
+
+
+### FUNCTION
+
+## INPUT: dataframe column that you want to scale ; the number of sds you want to scale to
+
+## OUTPUT: dataframe column with scaled values adn attributes needed to unscale variables that is going to be necessary when projecting the model.
+
+new_scale <- function(x, sds){
+  
+  mean <- mean(x)
+  sd <- sd(x)
+  
+  
+  scale_variable <- (x - mean)/((1/sds)*sd)
+  
+  
+  attr(scale_variable, "scale.scale") <- ((1/sds)*sd)
+  attr(scale_variable, "scale.center") <- mean
+  
+  
+  return(scale_variable)
+  
+}
+
+
+
+alpha_data$log_hpd_1km <- new_scale(alpha_data$log_hpd_1km, sds = 2)
+alpha_data$log_roads <- new_scale(alpha_data$log_roads, sds = 2)
+alpha_data$nat_hab_sw <- new_scale(alpha_data$nat_hab_sw, sds = 2)
+alpha_data$log_T30 <- new_scale(alpha_data$log_T30, sds = 2)
+alpha_data$control_hpd <- new_scale(alpha_data$control_hpd, sds = 2)
+alpha_data$control_roads <- new_scale(alpha_data$control_roads, sds = 2)
+
+```
+
+# Modelling
+
+So now all the variables as transformed and scaled to our satisfaction we are now ready to begin modelling. We are going to start with the maximal model with all main effects and their interactions with land use and intensity to begin with. We will then proceed through backwards step-wise model selection, dropping interactions that are not significant and then main effects. If a main effect has a significant interaction it cannot then be dropped as a main effect.
+
+We are also using generalised mixed effect modeling that enables us to take study as a random effect to account for the significant difference in each studies' region, sampling method sampling effort and other broad effects.
+
+```{r}
+
+## start with the full model with all varaibles included and all interactions 
+
+model_1 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
+                  (1|SS) ,data = alpha_data)
+
+summary(model_1)
+car::Anova(model_1)
+
+
+BIC(model_1) ## 4062.492
+
+### check for random slopes 
+
+model_1a <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
+                  (1 + log_hpd_1km|SS) ,data = alpha_data)
+
+summary(model_1a)
+car::Anova(model_1a)
+
+
+BIC(model_1a) ## 4075.31 NOPE
+
+## roads
+
+model_1b <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
+                  (1 + log_roads|SS) ,data = alpha_data)
+
+summary(model_1b)
+car::Anova(model_1b)
+
+
+BIC(model_1b) ## 4075.852 NOPE
+
+
+## nat_hab
+
+model_1c <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
+                  (1 + nat_hab_sw|SS) ,data = alpha_data)
+
+summary(model_1c)
+car::Anova(model_1c)
+
+
+BIC(model_1c) ## 4071.29 NOPE
+
+
+## log_t30
+
+model_1d <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
+                  (1 + log_T30|SS) ,data = alpha_data)
+
+summary(model_1d)
+car::Anova(model_1d)
+
+
+BIC(model_1d) ## 4074.969 NOPE
+
+
+### right proceed with the random effect structure of just the random intercepts of study without random slopes for any of the ocntinuous variables
+
+summary(model_1)
+car::Anova(model_1)
+
+### interactions between LUI and log roads and log_T30 are very close to being signifant but are not so we'll drop LUI:log_T30 first and see the impact 
+
+model_2 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
+                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
+                  (1|SS) ,data = alpha_data)
+
+summary(model_2)
+
+
+
+BIC(model_2) ## 3905.682 BIC is a lot lower in model 2 so good to proceed
+
+anova(model_2, model_1)
+### the LRT of the models is almost significant meaning that we dont lose a significnat amount of explanatory power (just) so it is good to proceed with the simpler model 
+
+
+car::Anova(model_2)
+
+### This means that we should get rid of log_T30 main effect from the model as it is the lest signifcant variable in the model and is not contained within an interactions.
+
+model_3 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
+                  log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads + 
+                  (1|SS) ,data = alpha_data)
+
+summary(model_3)
+
+
+BIC(model_3) ## 3892.233 is lower by 3 which is not a lot but let's see how 
+
+
+anova(model_3, model_2) ## there is not a signifcnat different in the models explantory power therefore we are good to proceed with the simpler model 
+
+
+car::Anova(model_3) 
+
+### looks like we can also drop the interaction between LUI and log roads 
+
+model_4 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
+                  log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads + 
+                  (1|SS) ,data = alpha_data)
+
+summary(model_4)
+
+
+BIC(model_4) ### 3719.044 biiiggg drop in BIc good to proceed
+
+anova(model_3, model_4) ## no signifcant difference in the modles good to proceed
+
+car::Anova(model_4)
+
+## drop log roads also 
+
+model_5 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
+                  log_hpd_1km  + nat_hab_sw + control_hpd  + 
+                  (1|SS) ,data = alpha_data)
+
+summary(model_5)
+
+
+BIC(model_5) ## 3696.08 Another drop in BIC so good to continue
+
+anova(model_4, model_5) ## no significant difference -- all good :)
+
+
+car::Anova(model_5) ## all varaible interactions with LUI are significant so can no longer remove any variables from the model so model_5 is our final model.
+
+summary(model_5)
+```
+
+\
+
+```{r}
+ggResidpanel::resid_panel(model_5)
+
+```
+
+ah the diagnostic plots look reasonably okay... the QQ plot looks a bit skew-wif in the lower values but I think this is as good as we're likely to get so I'm happy to go forward.
+
+So that's our final model decided and it looks pretty much as we'd expect. In the absence of the impact of intercations pretty much all other land uses exhibit a decrease in functional richness (apart from cropland minimal and urban - maybe has big interactions with other variables)
+
+```{r}
+plot_model(model_5, type = "int", terms = c("LUI", "nat_hab_sw"))
+```
+
+```{r}
+## lets save the model and data ready to be projected 
+
+write_rds(file = "../outputs/alpha_diversity_rao_model.rds", x = model_5)
+write_rds(file = "../outputs/alpha_modelling_dataframe.rds", x = alpha_data)
+
+```
