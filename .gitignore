@@ -42,4 +42,5 @@ vignettes/*.pdf
 **/outputs/
 *.png
 **/data/
+**/projections_code/
 
