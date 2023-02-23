@@ -13,7 +13,7 @@ The measure of functional similarity that I am going to use is the portion of th
 
 The two models will take the functional similarity of communities to a primary baseline as a function of the land use comparison and continuous pressures using generalised linear mixed effect models (GLMM). However, the functional similarity of sites is likely to be influenced not only by the difference in pressure between sites but the absolute pressure experienced at the second site, therefore we evaluate each of these for each continuous pressure. I also include control variables of the mean value of road and human population density within studies, and also geographic and environmental distance to account for landscape level pressures and distance decay in functional similarity. Study is also included as a random effect to account for broad differences in methodology, location and sampling effort between studies.
 
-## Load in data and packages 
+## Load in data and packages
 
 ```{r}
 
