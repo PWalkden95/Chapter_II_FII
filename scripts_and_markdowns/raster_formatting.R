@@ -38,9 +38,6 @@ raster_files <-
 
 ## loop
 
-raster <- raster_files[16]
-
-
 registerDoParallel(cores = detectCores() - 1)
 
 foreach(raster = raster_files,
