@@ -1,0 +1,739 @@
+---
+title: "7_the_functional_intactness_index"
+author: "Patrick Alexander Walkden"
+format: html
+editor: visual
+---
+
+## The Functional Intactness Index (FII)
+
+We now have everything in place to begin to project bird community alpha diversity and simialrity to a primary vegetation communities globally. This is quite a process to do so will take you through the main steps.
+
+In this markdown, i will demonstrate the workflow for the year 2020, usually I have a second script with all of this that I can source and will do it all for you.
+
+# Load in packages, functions data, models
+
+```{r}
+
+
+rm(list = ls())
+
+
+require(terra) ## working with rasters 
+require(rgdal) ## spatial
+require(magrittr) ## piping
+require(tidyverse) ## data wrangling
+require(raster) ## working with rasters as well - certain cases that the raster package works better than the terra package
+require(sf) ## dealing with spatial objects -- maybe not needed
+
+source("../functions/functions_to_project.R") ## see script for function details and explanations
+
+
+
+outdir = "../outputs" ## where we want the outputs to be saved
+alpha_model_path = "../outputs/alpha_diversity_rao_model.rds" ## path to the alpha model
+alpha_data_path = "../outputs/alpha_modelling_dataframe.rds" ## path to the alpha dataframe 
+forest_similarity_model_path = "../outputs/functional_similarity_forest_model.rds" ## path to forest similarity model
+forest_similarity_data_path = "../outputs/functional_similarity_forest_dataframe.rds" ## path to forest similarity dataframe 
+non_forest_similarity_model_path = "../outputs/functional_similarity_non_forest_model.rds" ## path to non-forest model
+non_forest_similarity_data_path = "../outputs/functional_similarity_non_forest_dataframe.rds" ## path to non-forest dataframe
+resolution = "10km" ## resolution
+
+
+### these are all general and will remain the same whether we are projecting to 2000 or 2020.
+
+  raster_dir = "../data/projection_rasters/2020-rasters-for-projections/10km" ## raster directory 
+    year = 2020 ## the year 
+    forest_biome_path = "../data/projection_rasters/2020-rasters-for-projections/10km/10kmforest_biomes.tif" ## forest regions
+    non_forest_biome_path = "../data/projection_rasters/2020-rasters-for-projections/10km/10kmnon_forest_biomes.tif" ## non-forest regions
+
+
+```
+
+## Load in models , dataframes and ensure right class
+
+Sometimes the predict function can play up if the class of the model is obscure but we can coerce it into a lmer model class that can be easily worked with.
+
+```{r}
+  alpha_model <- readRDS(alpha_model_path)
+    class(alpha_model) <- "lmerMod"
+    
+    alpha_data <- data.frame(readRDS(alpha_data_path))
+    alpha_data <- alpha_data[, colnames(alpha_model@frame)]
+    
+    
+    print("alpha diversity model and dataframe loaded...")
+    
+    
+    #### load in data for the forest similarity baseline
+    
+    forest_similarity_model <- readRDS(forest_similarity_model_path)
+    class(forest_similarity_model) <- "lmerMod"
+    
+    forest_similarity_data <- data.frame(readRDS(forest_similarity_data_path))
+    forest_similarity_data  <-
+      forest_similarity_data[, colnames(forest_similarity_model@frame)]
+    
+    print("forest similarity diversity model and dataframe loaded...")
+    
+    
+    
+    #### load in data for the non_forest similarity baseline
+    
+    non_forest_similarity_model <- readRDS(non_forest_similarity_model_path)
+    class(non_forest_similarity_model) <- "lmerMod"
+    
+    non_forest_similarity_data <- data.frame(readRDS(non_forest_similarity_data_path))
+    non_forest_similarity_data  <-
+      non_forest_similarity_data[, colnames(non_forest_similarity_model@frame)]
+    
+    print("non_forest similarity diversity model and dataframe loaded...")
+```
+
+## Load in rasters define forest and non-forest regions
+
+```{r}
+
+
+    forest_biome <- terra::rast(forest_biome_path)
+    
+    ## if cell is not classed as forest make NA as land will be coded in as 0 
+    
+    terra::values(forest_biome) <- ifelse(terra::values(forest_biome) > 0, 1, NA)
+    
+    #smae but for non-forest 
+    
+    non_forest_biome <- terra::rast(non_forest_biome_path)
+    
+    terra::values(non_forest_biome) <- ifelse(terra::values(non_forest_biome) > 0, 1, NA)
+    
+    plot(forest_biome,col = "blue")
+    plot(non_forest_biome, col = "orange")
+    
+    plot(sum(forest_biome, non_forest_biome, na.rm = TRUE), col = "green") ## still all cells classified once.
+```
+
+## Gathering rasters to project the alpha model
+
+Here i use a function in the "functions_to_project" script, which matches variables used in the model and the rasters in the data directory to load them in. Additonally, the function uses the dataframe to gain the values required to scale and centre the rasters just as had been done to the values prior to modelling.
+
+```{r}
+    
+    alpha_prediction_rasters <-
+      get_and_scale_model_rasters(
+        raster_dir = raster_dir,
+        model_dataframe = alpha_data,
+        exp_columns = c(3:4)
+      )
+    
+    
+    print(glue::glue("gathered alpha prediction rasters"))
+ 
+  
+```
+
+## Gathering land use rasters
+
+This quite simply gathers all the land use rasters from the data directory - previously to have estimates of the proportion of land that was of different intensities coarse land use rasters were weighted but now we can just load in the intensity rasters without having to weight.
+
+Here I additionally, combine some of the intensity rasters to match the combined LUI classes that I defined during the modelling phase.
+
+```{r}
+
+  
+    
+    
+    weighted_lu <-
+      get_and_weight_lu_rasters(
+        raster_dir = raster_dir,
+        intensity = c("primary forest", "primary non-forest",
+                                                           "secondary","plantation","pasture",
+                                                           "cropland","urban"))
+      
+  
+    names(weighted_lu) <- c("Primary forest_Minimal use",
+  "Primary forest_Light use",
+  "Primary forest_Intense use",
+  "Primary non-forest_Minimal use",
+  "Primary non-forest_Light use",
+  "Primary non-forest_Intense use",
+  "Secondary vegetation_Minimal use",
+  "Secondary vegetation_Light use",
+  "Secondary vegetation_Intense use",
+  "Plantation forest_Minimal use",
+  "Plantation forest_Light use",
+  "Plantation forest_Intense use",
+  "Pasture_Minimal use",
+  "Pasture_Light use",
+  "Pasture_Intense use",
+  "Cropland_Minimal use",
+  "Cropland_Light use",
+  "Cropland_Intense use",
+  "Urban_Minimal use",
+  "Urban_Light use",
+  "Urban_Intense use")
+    
+    
+    
+    
+    #### now we will have to iteratively project the model for each land use
+    
+    
+    
+    print(glue::glue("alpha: starting projecting for each land use class"))
+    
+    
+      
+    weighted_lu[["Primary non-forest_Low use"]] <- sum(weighted_lu[["Primary non-forest_Minimal use"]],
+                                                       weighted_lu[["Primary non-forest_Light use"]], 
+                                                       na.rm = TRUE)
+    
+    weighted_lu[["Primary non-forest"]] <- sum(weighted_lu[["Primary non-forest_Minimal use"]],
+                                                       weighted_lu[["Primary non-forest_Light use"]], 
+                                                       weighted_lu[["Primary non-forest_Intense use"]], 
+                                                       na.rm = TRUE)
+    
+    weighted_lu[["Cropland_High use"]] <- sum(weighted_lu[["Cropland_Intense use"]],
+                                                       weighted_lu[["Cropland_Light use"]], 
+                                                       na.rm = TRUE)
+    
+    weighted_lu[["Cropland"]] <- sum(weighted_lu[["Cropland_Intense use"]],
+                                              weighted_lu[["Cropland_Light use"]], 
+                                              weighted_lu[["Cropland_Minimal use"]], 
+                                              na.rm = TRUE)
+
+    weighted_lu[["Pasture_High use"]] <- sum(weighted_lu[["Pasture_Intense use"]],
+                                              weighted_lu[["Pasture_Light use"]], 
+                                              na.rm = TRUE)
+    
+        
+    weighted_lu[["Urban_High use"]] <- sum(weighted_lu[["Urban_Intense use"]],
+                                                       weighted_lu[["Urban_Light use"]], 
+                                                       na.rm = TRUE)
+    
+    weighted_lu[["Urban"]] <- sum(weighted_lu[["Urban_Intense use"]],
+                                           weighted_lu[["Urban_Light use"]], 
+                                           weighted_lu[["Urban_Minimal use"]], 
+                                           na.rm = TRUE)
+    
+    weighted_lu[["Secondary vegetation_High use"]] <- sum(weighted_lu[["Secondary vegetation_Intense use"]],
+                                           weighted_lu[["Secondary vegetation_Light use"]], 
+                                           na.rm = TRUE)
+    
+    weighted_lu[["Secondary vegetation"]] <- sum(weighted_lu[["Secondary vegetation_Intense use"]],
+                                                          weighted_lu[["Secondary vegetation_Light use"]], 
+                                                          weighted_lu[["Secondary vegetation_Minimal use"]], 
+                                                          na.rm = TRUE)
+    
+    weighted_lu[["Plantation forest"]] <- sum(weighted_lu[["Plantation forest_Intense use"]],
+                                                          weighted_lu[["Plantation forest_Light use"]], 
+                                                          weighted_lu[["Plantation forest_Minimal use"]], 
+                                                          na.rm = TRUE)
+```
+
+# Predicting the alpha diversity model spatially for each land use class
+
+Goes through each land use iterative and projects the model globally, assuming all the land is completely of that land use, then multiplies by the land use maps to weight each cell by the proportion of that cell which contains that land use class.
+
+I do this in parallel here to speed things up a little bit.
+
+```{r}
+
+
+  ## rgeister back end for parllel computing
+
+    plan(multicore(workers = detectCores() - 1))
+
+    ## get the levels of the model 
+    
+    land_use_levels <- levels(alpha_data$LUI)
+    
+      
+    ### parallel function
+    
+    alpha_projection_raster <-
+      future.apply::future_lapply(X = land_use_levels,
+                          FUN =  function(x) land_use_projection_function(land_use = x,
+                                          projection_rasters = alpha_prediction_rasters,
+                                          data = alpha_data,
+                                          model = alpha_model,
+                                          land_use_rasters = weighted_lu,
+                                          transformation = "log",
+                                          alpha_beta = "alpha",controls = c("hpd")
+                          ))
+      
+    ## name
+    
+    names(alpha_projection_raster) <- land_use_levels
+    
+    
+       
+    print(glue::glue("alpha: all land use classes projected"))
+    
+    ## sum all the rasters together to create predicted alpha diveristy map 
+    
+    alpha_combined_rast <- Reduce(alpha_projection_raster, f =  "+")
+    
+    
+    closeAllConnections()
+    
+```
+
+## alpha baseline projections
+
+Fantastic that we now have the alpha diversity global projection based on our model, we now need to compare to our baselines - Primary forest/non-forest habitat, with zero human population density, roads, and has never been converted to human land use so T30 is zero while proportion of natural habitat is 1.
+
+```{r}
+   print(glue::glue("alpha: getting baseline projection for primary forest"))
+    
+    
+    forest_constants <- data.frame(
+      LUI = "Primary forest_Minimal use",
+      control_hpd = scale_object(0, alpha_data$control_hpd),
+      log_hpd_1km = scale_object(0, alpha_data$log_hpd_1km),
+      nat_hab_sw = scale_object(1, alpha_data$nat_hab_sw)
+      #log_T30 = scale_object(0, alpha_data$log_T30),
+     # control_roads = scale_object(0, alpha_data$control_roads)
+    )
+    
+    ## predict the model and backtransform the values 
+    
+    forest_alpha_baseline_rast <-
+      exp(terra::predict(
+        alpha_prediction_rasters,
+        alpha_model,
+        re.form = NA,
+        const = forest_constants))
+    
+    
+    ### just get the regions that are forest for teh forest baseline
+    
+    forest_alpha_baseline_rast <- forest_alpha_baseline_rast * forest_biome
+    
+    
+    
+    
+    print(glue::glue("alpha: baseline projection for primary forest done"))
+    
+    
+    
+    print(glue::glue("alpha: getting baseline projection for non-primary forest"))
+    
+    
+    ## non-forest constants
+    
+    non_forest_constants <- data.frame(
+      LUI = "Primary non-forest_Minimal use",
+      control_hpd = scale_object(0, alpha_data$control_hpd),
+      log_hpd_1km = scale_object(0, alpha_data$log_hpd_1km),
+      nat_hab_sw = scale_object(1, alpha_data$nat_hab_sw)
+     # log_T30 = scale_object(0, alpha_data$log_T30),
+     # control_roads = scale_object(0, alpha_data$control_roads)
+    )
+    
+    
+    ## get the non-forest predictions and back-transform
+    
+    non_forest_alpha_baseline_rast <-
+      exp(terra::predict(
+        alpha_prediction_rasters,
+        alpha_model,
+        re.form = NA,
+        const = non_forest_constants)
+      )
+    
+    ## just get the regions that are non-forest 
+    
+    non_forest_alpha_baseline_rast <- non_forest_alpha_baseline_rast * non_forest_biome
+    
+    
+    
+    ## sum together 
+    
+        print(glue::glue("alpha: baseline projection for non-primary forest done"))
+    
+    alpha_baseline_rast <- sum(non_forest_alpha_baseline_rast, forest_alpha_baseline_rast, na.rm = TRUE)
+```
+
+## Alpha diversity compared to primary habitat baseline
+
+This is derived by dividing the projected alpha diversity raster by the baseline and then clamping the values to be between 0 and 1.
+
+```{r}
+
+
+## dividing porjected by baseline
+
+  FII_alpha_diversity <- alpha_combined_rast / alpha_baseline_rast
+  
+  
+  ## clamp between 0 and 1
+     
+    FII_alpha_diversity <-
+      terra::clamp(
+        FII_alpha_diversity,
+        lower = 0,
+        upper = 1,
+        values = TRUE
+      )
+    
+    ## plot
+    
+    plot(FII_alpha_diversity)
+    
+    ## where to save 
+    
+    save_location <- paste(outdir,"/",resolution,"FII_alpha_diversity",year,".tif",sep = "")
+    
+    ## save 
+    
+    writeRaster(
+      FII_alpha_diversity,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )
+    
+    
+    print(glue::glue("alpha FII projection saved at {save_location}"))
+    
+```
+
+# Predicting functional similarity to primary forest baseline
+
+This follows essentially the same format as the alpha projections but the resulting rasters are back transformed using the inverse logit function. Additionally, because I modelled forest and non-forest separately instead of just changing the land use constant in the baseline I need to project the non-forest model too, each to their respective regions of course.
+
+```{r}
+  ################################################
+    
+    
+    print(glue::glue("beginning forest similarity projections"))
+    
+## gather teh rasters relevant for projections and scale them based on the data used in the model 
+
+    forest_similarity_prediction_rasters <- get_and_scale_model_rasters(raster_dir = raster_dir,model_dataframe = forest_similarity_data,
+                                                                        exp_columns = c(3:10))
+    
+    
+    
+    print(glue::glue("gathered forest similarity rasters"))
+    ########################
+    
+    ## land use levels used in the model
+    
+    land_use_levels <- levels(forest_similarity_data$land_use_combination)
+    
+    ## register back-end for parallel computing
+    
+    plan(multicore(workers = detectCores() - 1))
+    
+    ## parallel lapply to get the projections for each land use level 
+    
+    forest_similarity_projection_raster <-
+      future.apply::future_lapply(
+        X = land_use_levels,
+        FUN =  function(x)
+          land_use_projection_function(
+            land_use = x,
+            projection_rasters = forest_similarity_prediction_rasters,
+            data = forest_similarity_data,
+            model = forest_similarity_model,
+            land_use_rasters = weighted_lu,
+            transformation = "logit",
+            alpha_beta = "betafor"
+          )
+      )
+    
+    closeAllConnections()
+    
+    print(glue::glue("similarity forest: all land use classes projected"))
+    
+    ## sum all the rasters together 
+    
+    forest_similarity_complete_rast <-
+      Reduce(forest_similarity_projection_raster, f =  "+")
+    
+    
+    plot(forest_similarity_complete_rast)
+```
+
+## Forest similarity baseline
+
+```{r}
+    print(glue::glue("similarity forest: getting baseline projection"))
+    
+    ## define forest constant most varaibles set to zero except proportion of lsndscape that is natural habitat set to 1 -- I know the rasters have been logged beforehand but they were tarnsform with a log + 1 tarnsformation and log(0+ 1) = 0 therefore we can just input zero here and be grand 
+    
+    forest_constants <-
+      data.frame(
+        land_use_combination = "Primary forest_Minimal use - Primary forest_Minimal use",
+        control_hpd = scale_object(0, forest_similarity_data$control_hpd),
+        site2_log_hpd = scale_object(0, forest_similarity_data$site2_log_hpd),
+        site2_nat_hab_sw = scale_object(1, forest_similarity_data$site2_nat_hab_sw),
+        site2_log_T30 = scale_object(0, forest_similarity_data$site2_log_T30),
+        control_roads = scale_object(0, forest_similarity_data$control_roads),
+        log_environmental_distance = scale_object(0, forest_similarity_data$log_environmental_distance),
+        log_geographic_distance = scale_object(0, forest_similarity_data$log_geographic_distance),
+        log_hpd_diff = scale_object(0, forest_similarity_data$log_hpd_diff),
+        log_T30_diff = scale_object(0, forest_similarity_data$log_T30_diff),
+        nat_hab_diff = scale_object(0, forest_similarity_data$nat_hab_diff)
+      )
+    
+    ## inverse logit back transformation
+    
+    forest_similarity_baseline_rast <-
+      inv_logit(
+        terra::predict(
+          forest_similarity_prediction_rasters,
+          forest_similarity_model,
+          re.form = NA,
+          const = forest_constants
+        ),
+        a = 0.0001
+      )
+    
+    
+    
+    print(glue::glue("similarity forest: baseline projection done"))
+    
+    ## divide predicted by baseline
+    
+    forest_similarity_relative_raster <-
+      forest_similarity_complete_rast / forest_similarity_baseline_rast
+    
+    plot(forest_similarity_baseline_rast)
+    
+    ## just get the forest regions
+    
+    forest_similarity_relative_raster <- forest_similarity_relative_raster * forest_biome
+    
+    
+       forest_similarity_relative_raster <-
+      terra::clamp(
+        forest_similarity_relative_raster,
+        lower = 0,
+        upper = 1,
+        values = TRUE
+      )
+    
+       
+               save_location <- paste(outdir,"/",resolution,"FII_forest_functional_similarity",year,".tif",sep = "")
+    
+    writeRaster(
+      forest_similarity_realtive_raster,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )   
+         
+    print(glue::glue("FII_forest_functional_similarity {year} raster saved at {save_location}"))
+    
+    
+```
+
+# Prediciting functional similarity of bird communities to non-forest primary habitat baseline
+
+same again but for non-forest
+
+```{r}
+
+   ############# non-forest 
+    
+    non_forest_similarity_prediction_rasters <- get_and_scale_model_rasters(raster_dir = raster_dir,
+                                                                            model_dataframe = non_forest_similarity_data, 
+                                                                            exp_columns = c(3:7))
+    
+    
+    ## get levels for the parallel lapply
+    
+    land_use_levels <- levels(non_forest_similarity_data$land_use_combination)
+    
+    plan(multicore(workers = detectCores() - 1 ))
+    
+    non_forest_similarity_projection_raster <-
+      future.apply::future_lapply(
+        X = land_use_levels,
+        FUN =  function(x)
+          land_use_projection_function(
+            land_use = x,
+            projection_rasters = non_forest_similarity_prediction_rasters,
+            data = non_forest_similarity_data,
+            model = non_forest_similarity_model,
+            land_use_rasters = weighted_lu,
+            transformation = "logit",
+            alpha_beta = "betanfor"
+          )
+      )
+    
+    closeAllConnections()
+    
+    
+    print(glue::glue("similarity non_forest: all land use classes projected"))
+    
+    ## add rasters together 
+    
+    non_forest_similarity_complete_rast <-
+      Reduce(non_forest_similarity_projection_raster, f =  "+")
+    
+    plot(non_forest_similarity_complete_rast)
+    
+```
+
+## Non-forest similarity baseline
+
+```{r}
+    print(glue::glue("similarity non_forest: getting baseline projection"))
+    
+    non_forest_constants <-
+      data.frame(
+        land_use_combination = "Primary non-forest_Low use - Primary non-forest_Low use",
+        control_hpd = scale_object(0, non_forest_similarity_data$control_hpd),
+        site2_log_hpd = scale_object(0, non_forest_similarity_data$site2_log_hpd),
+        #site2_nat_hab_sw = scale_object(1, non_forest_similarity_data$site2_nat_hab_sw),
+        #site2_log_T30 = scale_object(0, non_forest_similarity_data$site2_log_T30),
+        site2_log_roads = scale_object(0, non_forest_similarity_data$site2_log_roads),
+        control_roads = scale_object(0, non_forest_similarity_data$control_roads),
+        log_environmental_distance = scale_object(log(0 + 1), non_forest_similarity_data$log_environmental_distance),
+        log_geographic_distance = scale_object(log(0 + 1), non_forest_similarity_data$log_geographic_distance),
+        log_hpd_diff = scale_object(0, non_forest_similarity_data$log_hpd_diff),
+        #log_T30_diff = scale_object(0, non_forest_similarity_data$log_T30_diff),
+        nat_hab_diff = scale_object(0, non_forest_similarity_data$nat_hab_diff),
+        log_roads_diff = scale_object(0, non_forest_similarity_data$log_roads_diff)
+      )
+    
+    non_forest_similarity_baseline_rast <-
+      inv_logit(
+        terra::predict(
+          non_forest_similarity_prediction_rasters,
+          non_forest_similarity_model,
+          re.form = NA,
+          const = non_forest_constants
+        ),
+        a = 0.0001
+      )
+    
+    
+    print(glue::glue("similarity non_forest: baseline projection done"))
+    
+    non_forest_similarity_relative_raster <-
+      non_forest_similarity_complete_rast / non_forest_similarity_baseline_rast
+    
+  
+    
+    
+    non_forest_similarity_relative_raster <- non_forest_similarity_relative_raster * non_forest_biome
+
+    
+          non_forest_similarity_relative_raster <-
+      terra::clamp(
+        non_forest_similarity_relative_raster,
+        lower = 0,
+        upper = 1,
+        values = TRUE
+      )
+    
+          
+            save_location <- paste(outdir,"/",resolution,"FII_non_forest_functional_similartiy",year,".tif",sep = "")
+    
+    writeRaster(
+      non_forest_similarity_relative_raster,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )   
+         
+    print(glue::glue("FII_non_forest_functional_similarity {year} raster saved at {save_location}"))
+    
+      
+```
+
+## Combining forest and non-forest similarity projections
+
+Combine the models now. We also will what to save the similarity map and also the forest/non-forest partitions.
+
+```{r}
+
+## sum forest and non-forest regions together
+
+   similarity_relative_raster <- sum(forest_similarity_relative_raster, non_forest_similarity_relative_raster, na.rm = TRUE)
+   
+     
+       
+        save_location <- paste(outdir,"/",resolution,"FII_functional_similarity",year,".tif",sep = "")
+    
+    writeRaster(
+      similarity_relative_raster,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )   
+         
+    print(glue::glue("FII_functional_similarity {year} raster saved at {save_location}"))
+    
+    
+    
+```
+
+# The Functional Intactness Index (FII)
+
+The functional intactness index is now derived as the product of these two rasters, leaving us with the proportion of functional diversity remaining in communities compared to a primary habitat baselines. Finally, we are also going to want to visualize the final FII product partitioned into the forest and non- forest regions so I will save those raster also.
+
+```{r}
+
+    
+    print(glue::glue("Deriving FII indicator as the product of alpha and similarity"))
+    
+        FII_raster <- FII_alpha_diversity * similarity_relative_raster
+    
+    print(glue::glue("FII derived."))
+    
+    
+    save_location <- paste(outdir,"/",resolution,"FUNCTIONAL_INTACTNESS_INDEX",year,".tif",sep = "")
+    
+    writeRaster(
+      FII_raster,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )
+    
+    plot(FII_raster)
+      
+    print(glue::glue("FII {year} raster saved at {save_location}"))
+    
+    
+        FII_forest <- FII_raster * forest_biome
+    
+            save_location <- paste(outdir,"/",resolution,"FII_forest",year,".tif",sep = "")
+    
+    writeRaster(
+      FII_forest,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )   
+         
+    print(glue::glue("FII_forest {year} raster saved at {save_location}"))
+    
+    
+        FII_non_forest <- FII_raster * non_forest_biome
+    
+            save_location <- paste(outdir,"/",resolution,"FII_non_forest",year,".tif",sep = "")
+    
+    writeRaster(
+      FII_non_forest,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )   
+         
+    print(glue::glue("FII_non_forest {year} raster saved at {save_location}"))
+    
+```

@@ -40,9 +40,11 @@ We can see the distribution of the land use and intensity classes of the availab
 ```{r}
 
 ### merge together some land use classes and filter out those sites that we cannot decide what land use intensity it falls under
-alpha_data <- alpha_data %>% dplyr::mutate(LUI = ifelse(grepl(LUI, pattern = "Urban"), "Urban", LUI),
-                                            LUI = ifelse(grepl(LUI, pattern = "Cropland_Intense use")|
-                                                           grepl(LUI, pattern = "Cropland_Light use"), "Cropland_High use", LUI)
+alpha_data <- alpha_data %>% dplyr::mutate(LUI = ifelse(grepl(LUI, pattern = "Cropland_Intense use")|
+                                                           grepl(LUI, pattern = "Cropland_Light use"), "Cropland_High use", LUI),
+                                           LUI = ifelse(grepl(LUI, pattern = "Pasture_Intense use")|
+                                                           grepl(LUI, pattern = "Pasture_Light use"), "Pasture_High use", LUI),
+                                           LUI = ifelse(grepl(LUI, pattern = "Urban"), "Urban", LUI)
                                            ) %>%
   dplyr::filter(!grepl(LUI , pattern = "Cannot decide"))
 
@@ -57,7 +59,7 @@ land_use_levels <- c("Primary forest_Minimal use","Primary forest_Light use","Pr
                      "Primary non-forest_Minimal use","Primary non-forest_Light use", "Primary non-forest_Intense use",
                      "Secondary vegetation_Minimal use","Secondary vegetation_Light use","Secondary vegetation_Intense use",
                      "Plantation forest_Minimal use","Plantation forest_Light use","Plantation forest_Intense use",
-                     "Pasture_Minimal use","Pasture_Light use","Pasture_Intense use",
+                     "Pasture_Minimal use","Pasture_High use",
                      "Cropland_Minimal use", "Cropland_High use",
                      "Urban")
 
@@ -89,6 +91,7 @@ hist(sqrt(alpha_data$functional_richness))
 ## logging it looks much better as compared to square rooting
 
 alpha_data$logRich <- log(alpha_data$functional_richness) 
+
 
 
 
@@ -147,140 +150,111 @@ We are also using generalised mixed effect modeling that enables us to take stud
 
 ```{r}
 
-## start with the full model with all varaibles included and all interactions 
-
-model_1 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
-                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
-                  (1|SS) ,data = alpha_data)
-
+## start with the full model with all varaibles included and all interactions
+model_1 <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+      log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
+      (1 | SS) ,
+    data = alpha_data
+  )
 summary(model_1)
 car::Anova(model_1)
-
-
 BIC(model_1) ## 4062.492
-
-### check for random slopes 
-
-model_1a <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
-                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
-                  (1 + log_hpd_1km|SS) ,data = alpha_data)
-
+### check for random slopes
+model_1a <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+      log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
+      (1 + log_hpd_1km | SS) ,
+    data = alpha_data
+  )
 summary(model_1a)
 car::Anova(model_1a)
-
-
 BIC(model_1a) ## 4075.31 NOPE
-
 ## roads
-
-model_1b <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
-                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
-                  (1 + log_roads|SS) ,data = alpha_data)
-
+model_1b <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+      log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
+      (1 + log_roads | SS) ,
+    data = alpha_data
+  )
 summary(model_1b)
 car::Anova(model_1b)
-
-
 BIC(model_1b) ## 4075.852 NOPE
-
-
 ## nat_hab
-
-model_1c <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
-                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
-                  (1 + nat_hab_sw|SS) ,data = alpha_data)
-
+model_1c <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+      log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
+      (1 + nat_hab_sw | SS) ,
+    data = alpha_data
+  )
 summary(model_1c)
 car::Anova(model_1c)
-
-
 BIC(model_1c) ## 4071.29 NOPE
-
-
 ## log_t30
-
-model_1d <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
-                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
-                  (1 + log_T30|SS) ,data = alpha_data)
-
+model_1d <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
+      log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
+      (1 + log_T30 | SS) ,
+    data = alpha_data
+  )
 summary(model_1d)
 car::Anova(model_1d)
-
-
 BIC(model_1d) ## 4074.969 NOPE
-
-
 ### right proceed with the random effect structure of just the random intercepts of study without random slopes for any of the ocntinuous variables
-
 summary(model_1)
 car::Anova(model_1)
-
-### interactions between LUI and log roads and log_T30 are very close to being signifant but are not so we'll drop LUI:log_T30 first and see the impact 
-
-model_2 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
-                  log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
-                  (1|SS) ,data = alpha_data)
-
+### interactions between LUI and log roads and log_T30 are very close to being signifant but are not so we'll drop LUI:log_T30 first and see the impact
+model_2 <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
+      log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
+      (1 | SS) ,
+    data = alpha_data
+  )
 summary(model_2)
-
-
-
 BIC(model_2) ## 3905.682 BIC is a lot lower in model 2 so good to proceed
-
 anova(model_2, model_1)
-### the LRT of the models is almost significant meaning that we dont lose a significnat amount of explanatory power (just) so it is good to proceed with the simpler model 
-
-
+### the LRT of the models is almost significant meaning that we dont lose a significnat amount of explanatory power (just) so it is good to proceed with the simpler model
 car::Anova(model_2)
-
 ### This means that we should get rid of log_T30 main effect from the model as it is the lest signifcant variable in the model and is not contained within an interactions.
-
-model_3 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
-                  log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads + 
-                  (1|SS) ,data = alpha_data)
-
+model_3 <-
+  lmer(
+    logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
+      log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads +
+      (1 | SS) ,
+    data = alpha_data
+  )
 summary(model_3)
-
-
-BIC(model_3) ## 3892.233 is lower by 3 which is not a lot but let's see how 
-
-
-anova(model_3, model_2) ## there is not a signifcnat different in the models explantory power therefore we are good to proceed with the simpler model 
-
-
-car::Anova(model_3) 
-
-### looks like we can also drop the interaction between LUI and log roads 
-
-model_4 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
-                  log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads + 
-                  (1|SS) ,data = alpha_data)
-
+BIC(model_3) ## 3892.233 is lower by 3 which is not a lot but let's see how
+anova(model_3, model_2) ## there is not a signifcnat different in the models explantory power therefore we are good to proceed with the simpler model
+car::Anova(model_3)
+### looks like we can also drop the interaction between LUI and log roads
+model_4 <- lmer(
+  logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
+    log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads +
+    (1 | SS) ,
+  data = alpha_data
+)
 summary(model_4)
-
-
 BIC(model_4) ### 3719.044 biiiggg drop in BIc good to proceed
-
 anova(model_3, model_4) ## no signifcant difference in the modles good to proceed
-
 car::Anova(model_4)
-
-## drop log roads also 
-
-model_5 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
-                  log_hpd_1km  + nat_hab_sw + control_hpd  + 
-                  (1|SS) ,data = alpha_data)
-
+## drop log roads also
+model_5 <- lmer(
+  logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
+    log_hpd_1km  + nat_hab_sw + control_hpd  +
+    (1 | SS) ,
+  data = alpha_data
+)
 summary(model_5)
-
-
 BIC(model_5) ## 3696.08 Another drop in BIC so good to continue
-
 anova(model_4, model_5) ## no significant difference -- all good :)
-
-
 car::Anova(model_5) ## all varaible interactions with LUI are significant so can no longer remove any variables from the model so model_5 is our final model.
-
 summary(model_5)
 ```
 

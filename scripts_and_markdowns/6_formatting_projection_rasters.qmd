@@ -21,7 +21,7 @@ Secondary vegetation \< --------- secdf +secdnf
 
 Plantation forest \< ------------ c3per + c4per
 
-Pasture \< ----------------- pastr
+Pasture \< ----------------- pastr + range
 
 Cropland \< ------------- c3ann + c4ann + c3nfx
 
@@ -167,7 +167,7 @@ future_lapply(seq_along(predicts_list_2020), function(x, y, i) {
 }, y = names(predicts_list_2020), x = predicts_list_2020)
 
 
-future_lapply(seq_along(predicts_list_2000), function(x, y, i) {
+lapply(seq_along(predicts_list_2000), function(x, y, i) {
   combine_to_predicts(
     predicts_list = x[[i]],
     predicts_lu = y[[i]],
@@ -189,7 +189,7 @@ now onto getting the forest and non-forest biomes defined for our two different 
 
 ##load in a raster that has the world that we can reclassify to a blank map that we can then project the biome polygons onto
 
-world_raster <- raster::raster("../data/projection_rasters/2020-rasters-for-projections/10km/10kmLU-c3ann-2020.tif")
+world_raster <- raster::raster("../data/projection_rasters/2020-rasters-for-projections/10km/primary forest_light_predicts.tif")
 
 
 world_raster <- raster::reclassify(world_raster, c(-Inf,Inf,0))
@@ -311,7 +311,7 @@ terra::values(forest_biomes)[which(terra::values(forest_overlap) == 2)] <- NA
 
 plot(sum(forest_biomes, non_forest_biomes, na.rm = TRUE))
 
-## save both!
+## save both and for both years!
 
 raster::writeRaster(
   forest_biomes,
@@ -329,10 +329,24 @@ raster::writeRaster(
   datatype = 'FLT8S'
 )
 
+raster::writeRaster(
+  forest_biomes,
+  filename = "../data/projection_rasters/2000-rasters-for-projections/10km/10kmforest_biomes.tif",
+  overwrite = TRUE,
+  gdal = c("COMPRESS=NONE", "TFW=YES"),
+  datatype = 'FLT8S'
+)
 
+raster::writeRaster(
+  non_forest_biomes,
+  filename = "../data/projection_rasters/2000-rasters-for-projections/10km/10kmnon_forest_biomes.tif",
+  overwrite = TRUE,
+  gdal = c("COMPRESS=NONE", "TFW=YES"),
+  datatype = 'FLT8S'
+)
 ```
 
-Now finally when savinf each raster as a .tif file for some reason it also save an accompanying .tfw file which seem useless.
+Now finally when savinf each raster as a .tif file for some reason it also save an accompanying .tfw file which seem useless. Additionally, we no longer need the luh2 land use rasters so good to remove them from the directory too to save memory and enable easy matching later.
 
 ```{r}
 
@@ -340,4 +354,16 @@ Now finally when savinf each raster as a .tif file for some reason it also save 
 
 file.remove(grep(list.files(path = "../data/projection_rasters/2000-rasters-for-projections/10km/",full.names = TRUE),pattern = ".tfw",value = TRUE))
 file.remove(grep(list.files(path = "../data/projection_rasters/2020-rasters-for-projections/10km/",full.names = TRUE),pattern = ".tfw",value = TRUE))
+
+
+file.remove(grep(list.files(path = "../data/projection_rasters/2000-rasters-for-projections/10km/",full.names = TRUE),pattern = ".tfw",value = TRUE))
+
+
+luh2 <- c("primf","primn","secdf","secdn","c3per","c4per","c3ann","c4ann","c3nfx","range","pastr","10kmurban")
+
+
+
+file.remove(grep(pattern = paste(luh2,collapse = "|"), x = list.files(path = "../data/projection_rasters/2000-rasters-for-projections/10km/",full.names = TRUE), value = TRUE))
+
+file.remove(grep(pattern = paste(luh2,collapse = "|"), x = list.files(path = "../data/projection_rasters/2020-rasters-for-projections/10km/",full.names = TRUE), value = TRUE))
 ```

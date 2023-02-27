@@ -131,6 +131,7 @@ full_country_FII$country <- factor(full_country_FII$country,levels = as.characte
 full_change_plot <- ggplot(data = full_country_FII, aes(x = FII_change, y = country, fill = country)) +
   geom_vline(xintercept = 0) +
   geom_boxplot(outlier.shape = NA, show.legend = FALSE) +
+  #geom_violin(show.legend = FALSE) +
   scale_fill_manual(values = mean_country_FII$colour) + 
   theme_classic()
 

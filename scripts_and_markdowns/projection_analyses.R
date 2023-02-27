@@ -54,6 +54,7 @@ plot(difference < 0)
 raster_plot <- function(raster, map = FALSE){
   
   mask_frame <- as.data.frame(raster, xy = TRUE) %>% drop_na()
+  colnames(mask_frame)[3] <- "layer"
   
   ### colours 
   
@@ -112,6 +113,7 @@ raster_plot <- function(raster, map = FALSE){
   
   return(raster_plot)
 }
+
 
 
 FII_2000_plot <- raster_plot(FII_2000,map = TRUE)

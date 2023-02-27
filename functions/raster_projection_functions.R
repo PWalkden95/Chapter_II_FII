@@ -240,19 +240,46 @@ luh2_to_predicts <- function(data_dir, intensity = NA) {
 ### OUTPUT: the combined raster
 
 
+
 combine_to_predicts <- function(predicts_list,predicts_lu,data_dir, outdir){
+  
+  print(predicts_lu)
   
   directory_files <- list.files(data_dir)
   directory_files <- directory_files[grepl(directory_files, pattern = ".tif")]
   
   ## load in teh first luh2 raster
   
-  predicts_raster <- terra::rast(paste(data_dir, grep(directory_files,pattern =  predicts_list[1],value = TRUE),sep = "/" )) 
+  luh2_rast <-
+    grep(
+      paste(
+        data_dir,
+        grep(directory_files, pattern =  predicts_list[1], value = TRUE),
+        sep = "/"
+      ),
+      pattern = "predicts",
+      value = TRUE,
+      invert = TRUE
+    )
+  
+  predicts_raster <- terra::rast(luh2_rast) 
+  
+ 
   
   if(length(predicts_list) == 1){
     ## if doesn't need to be combined just return the raster
-    return(predicts_raster)
-  }
+    save_location <- paste(outdir,"/",predicts_lu,"_predicts",".tif",sep = "")
+    
+    writeRaster(
+      predicts_raster,
+      filename = save_location,
+      overwrite = TRUE,
+      gdal = c("COMPRESS=NONE", "TFW=YES"),
+      datatype = 'FLT8S'
+    )
+    
+    
+  } else {
   
   ## if needs to be combined then load in other ratsers iteratively and add together.
   
@@ -268,7 +295,7 @@ combine_to_predicts <- function(predicts_list,predicts_lu,data_dir, outdir){
   
   
   
-  save_location <- paste(outdir,"/",predicts_lu,"_luh1",".tif",sep = "")
+  save_location <- paste(outdir,"/",predicts_lu,"_predicts",".tif",sep = "")
   
   writeRaster(
     predicts_raster,
@@ -279,4 +306,4 @@ combine_to_predicts <- function(predicts_list,predicts_lu,data_dir, outdir){
   )
   
 }
-
+}
