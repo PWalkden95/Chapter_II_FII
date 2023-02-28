@@ -1,0 +1,365 @@
+---
+title: "8_analysing_projections"
+author: "Patrick Alexander Walkden"
+format: html
+editor: visual
+---
+
+## Analyzing Functional Intactness Index projections
+
+Now that we have the the projections of the functional intactness of global bird communities we should extract some meaning that can be useful to influence and inform international, national and regional policy.
+
+First, I am going to see what the global mean of FII is at 2000 and 2020 to reveal the general trajectory of FII around the world. Now this decline is not going to be distributed even with some countries and regions that will be impacted more and other than may have improved over time.
+
+Therefore, I am going to partition the FII map into countries and extract the mean FII values as well as the individual cell values for 2000 and 2020 to show the trend in FII at the country level over time. In addition to showing my FII changes at the country level I am going to look at ecoregion/biome/realm level to have an intermediate geographic scale.
+
+Again I'll demonstrate the
+
+## Load in packages
+
+```{r}
+rm(list = ls())
+
+
+require(terra) ## working with rasters
+require(rgdal) ## spatial package 
+require(magrittr) ## piping
+require(tidyverse) ## data manipulation
+require(raster) ## working with rasters 
+require(sf) ## working with spatial objects
+
+```
+
+## Load in FII Projections and format
+
+Load in the projections and do some slight formatting , so that if a cell is NA in one raster is should be NA in both to make sure that the rasters are better comparable. Additionally, because we cannot be sure of what the functional intactness of dessert, tundra, and ice bird communities I am going to mask these areas of the map.
+
+```{r}
+
+## Load in FII projections for 2000 and 2020 
+
+FII_2000 <- terra::rast("../outputs/10kmFUNCTIONAL_INTACTNESS_INDEX2000.tif")
+
+FII_2020 <- terra::rast("../outputs/10kmFUNCTIONAL_INTACTNESS_INDEX2020.tif")
+
+## both cells need to be filled 
+
+values(FII_2020) <- ifelse(!(!is.na(values(FII_2000)) & !is.na(values(FII_2020))), NA, values(FII_2020))
+values(FII_2000) <- ifelse(!(!is.na(values(FII_2000)) & !is.na(values(FII_2020))), NA, values(FII_2000))
+
+
+## load in biome polygons 
+
+biome_list <- readRDS("../data/biome_list.rds")
+
+## mask the dessert, tundra and rock and ice biomes 
+
+for(i in c(16,15,13)){
+  
+  FII_2020 <- terra::mask(FII_2020, mask = st_as_sf(biome_list[[i]]), inverse = TRUE)
+  FII_2000 <- terra::mask(FII_2000, mask = st_as_sf(biome_list[[i]]), inverse = TRUE)
+}
+
+
+## extrcat the gloabl mean FII's and what the trend is between 2000 and 2020
+
+median(terra::values(FII_2000), na.rm = TRUE) ## 69.66% functionally intact
+median(terra::values(FII_2020), na.rm = TRUE) ## 67.7% functionally intact
+
+## 2% decline in global FII.
+
+
+
+```
+
+## How are the differences in FII spatially organised
+
+```{r}
+
+## what are the differences between 2000 and 2020
+
+difference <- FII_2020 - FII_2000
+
+### a lot of differences flowing around zero 
+
+hist(terra::values(difference))
+
+### places that have increased in FII mostly Europe....
+plot(difference > 0)
+
+## places that have reduced FII
+plot(difference < 0)
+
+
+```
+
+## Plotting FII maps
+
+Need to make a function that takes a raster and plots the map in ggplot with a colour legend with red indicating low FII and blue high FII.
+
+```{r}
+
+
+raster_plot <- function(raster, map = FALSE){
+  
+  ## convert raster into a dataframe
+  
+  mask_frame <- as.data.frame(raster, xy = TRUE) %>% drop_na()
+  colnames(mask_frame)[3] <- "layer"
+  
+  ### colours 
+  
+  my_colour <-
+    colorRampPalette(c("red","orange", "cadetblue3" ,"midnightblue"))
+  
+  colours <- my_colour(500)
+  
+  my_colours_2 <- colorRampPalette(c("#4A2545","darkred" ,"red"))
+  
+  
+  colours <- c(my_colours_2(500), colours)
+  
+  
+  
+  
+  # generate and plot map
+  
+  raster_plot <- ggplot() + coord_fixed() 
+  
+  if(map){
+    
+    wm <-
+      map_data("world") %>% filter(region != "Antartica") %>% fortify()
+    
+    raster_plot <- raster_plot +
+      geom_map(
+        data = wm,
+        map = wm,
+        aes(group = group, map_id = region),
+        fill = "gray30"
+      ) +
+      scale_x_continuous(limits = c(-180, 180), breaks = seq(-180, 180, 30)) +
+      scale_y_continuous(limits = c(-60, 90), breaks = seq(-60, 90, 30)) 
+  }
+  
+  
+  raster_plot <- raster_plot +
+    geom_tile( data = mask_frame, aes( x = x, y = y, fill = layer)) +
+    scale_fill_gradientn(breaks = c(0,0.2,0.4,0.6,0.8,1), limits = c(0,1),
+                         labels = c(0,0.2,0.4,0.6,0.8,1), colours = colours) +
+    theme(
+      axis.line = element_line(colour = "black", linetype = "solid"),
+      axis.title.y = element_blank(),
+      #axis.ticks.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.title.x = element_blank(),
+      # axis.ticks.x = element_blank(),
+      axis.text.x = element_blank(),
+      panel.background = element_rect(fill = 'white', color = 'white'),
+      panel.grid.major = element_line(color = 'white'),
+      panel.grid.minor = element_line(color = 'white')
+    )
+  
+  
+  
+  return(raster_plot)
+}
+
+
+
+FII_2000_plot <- raster_plot(FII_2000,map = TRUE)
+FII_2020_plot <- raster_plot(FII_2020, map = TRUE)
+
+plot(FII_2000_plot)
+plot(FII_2020_plot)
+
+
+ggsave(filename = "../FII_2020_plot.png",FII_2020_plot,device = "png", height = 10, width = 40,dpi=300)
+ggsave(filename = "../FII_2000_plot.png",FII_2000_plot,device = "png", height = 10, width = 40,dpi=300)
+
+
+```
+
+## FII at the country level and their trends over time
+
+Globally trends do not always translate equally to trends experienced by individual countries so here I gather together spatially polygons of the world's countries and then extract the values from just those cells contained within each country.
+
+```{r}
+
+
+## load in the shapefiles of all the world's countries 
+
+countries <- st_read("../../../Datasets/Country_shapefiles/all_countries.shp")
+
+
+### two empty dataframes that contain the median FII of each country and another that extracts the value fo each cell within the country so that we can see the distribution of change within countries 
+
+country_median_FII_values <- c()
+country_full_FII_values <- c()
+
+for(i in 1:nrow(countries)){
+  
+  
+  ### convert to a spatial vector to work with in the terra package
+  vector <- terra::vect(countries$geometry[i])
+  
+  
+  ## if the country name is NA skip 
+  if(ext(vector)[3] < ext(FII_2020)[3] | is.na(countries$iso_short[i])){
+    next()
+  }
+  
+  
+  ### crop the two FII rasters
+  mask_2020 <- terra::crop(FII_2020,vector) %>% terra::mask(vector)
+  mask_2000 <- terra::crop(FII_2000,vector) %>% terra::mask(vector)
+  
+  
+  ## some spatial chekcing stuff 
+  
+  sf_use_s2(TRUE)
+  if (!st_is_valid(countries$geometry[i])) {
+    sf_use_s2(FALSE)
+  }
+  
+  ### if most of the country has been masked because it contains mostly dessert or tundra skip 
+  
+  if(
+    (sum(terra::values(mask_2020) > 0, na.rm = TRUE)/
+     
+     (as.numeric(st_area(countries$geometry[i]))/(10000*10000))) < 0.3){
+    next()
+  }
+  
+  
+  ### extract the full values of each cell making up each country as well as getting the country area
+  
+  full_values <- data.frame(country = countries$iso_short[i],
+                            values_2000 = as.data.frame(mask_2000)[,1],
+                            values_2020 = as.data.frame(mask_2020)[,1],
+                            country_area = as.numeric(st_area(countries$geometry[i])))
+  
+  ### extract just the median value 
+  
+  median_values <-
+    data.frame(country = countries$iso_short[i],
+               country_area = as.numeric(st_area(countries$geometry[i])),
+               median_FII_2020 = median(terra::values(mask_2020), na.rm = TRUE),
+               median_FII_2000 = median(terra::values(mask_2000), na.rm = TRUE))
+  
+  country_median_FII_values <- rbind(country_median_FII_values,median_values)
+  country_full_FII_values <- rbind(country_full_FII_values, full_values)
+  
+  
+  
+}
+
+
+write_rds(file = "../outputs/10kmmean_country_FII.rds", x = country_median_FII_values)
+write_rds(file = "../outputs/10kmfull_country_FII.rds", x = country_full_FII_values)
+```
+
+# Graphs
+
+## Countries median FII
+
+```{r}
+my_colour <-
+  colorRampPalette(c("red","orange", "cadetblue3" ,"midnightblue"))
+
+colours <- my_colour(500)
+
+my_colours_2 <- colorRampPalette(c("#4A2545","darkred" ,"red"))
+
+
+colours <- c(my_colours_2(500), colours)
+
+
+
+median_country_FII <- readRDS("../outputs/10kmmean_country_FII.rds") %>% dplyr::filter(!is.nan(median_FII_2020)) 
+
+
+
+median_country_FII <- median_country_FII[order(median_country_FII$country_area,decreasing = TRUE)[1:100],] %>%
+  dplyr::arrange(median_FII_2020)
+
+median_country_FII$country <- factor(median_country_FII$country, levels = median_country_FII$country)
+
+
+
+
+stacked_bar <- ggplot(data = median_country_FII, aes( x = median_FII_2020, y = country, fill = median_FII_2020)) +
+  geom_bar(stat = "identity") +
+  geom_vline(xintercept = 0.7557658) +
+  scale_fill_gradientn(breaks = c(0,0.2,0.4,0.6,0.8,1), limits = c(0,1),
+                       labels = c(0,0.2,0.4,0.6,0.8,1), colours = colours) +
+  theme_classic()
+
+plot(stacked_bar)
+
+
+
+
+ggsave(filename = "../country_stacked.png",stacked_bar,device = "png", height = 40, width = 20,units = "cm",dpi=300)
+
+
+
+```
+
+## Countries trend in FII
+
+```{r}
+
+# ------------
+## Full change in value plots 
+
+full_country_FII <-
+  readRDS("../outputs/10kmfull_country_FII.rds") %>% 
+  dplyr::filter(country %in% levels(median_country_FII$country)) 
+
+
+
+
+change_colour_low <- colorRampPalette(c("tomato","red","red4"))
+change_colour_high <- colorRampPalette(c("skyblue1","blue","midnightblue"))
+
+median_FII_change <- full_country_FII %>% dplyr::mutate(FII_change = values_2020 - values_2000) %>% dplyr::group_by(country) %>% dplyr::summarise(median_values = median(FII_change)) %>% dplyr::arrange(median_values)
+
+
+median_FII_change$country <- factor(median_FII_change$country, levels = median_FII_change$country)
+
+
+round_values <- seq(0.001,max(max(median_FII_change$median_values),abs(min(median_FII_change$median_values))) + 0.001,0.001)
+
+col_low <- change_colour_low(length(round_values))
+col_high <- change_colour_high(length(round_values))
+
+col_frame <- data.frame(round_change = as.character(unique(c(0,-round_values,round_values))),
+                        colour = c("grey45",col_low,col_high))
+
+
+median_FII_change$round_change <- as.character(round(median_FII_change$median_values,digits = 3))
+
+median_FII_change <- median_FII_change %>% dplyr::left_join(col_frame)
+
+
+
+
+full_country_FII$country <- factor(full_country_FII$country,levels = as.character(median_FII_change$country[order(median_FII_change$median_values)]))
+
+full_country_FII <- full_country_FII %>% dplyr::mutate(FII_change = values_2020 - values_2000)
+
+
+full_change_plot <- ggplot(data = full_country_FII, aes(x = FII_change, y = country, fill = country)) +
+  geom_vline(xintercept = 0) +
+  geom_boxplot(outlier.shape = NA, show.legend = FALSE) +
+  #geom_violin(show.legend = FALSE) +
+  scale_fill_manual(values = median_FII_change$colour) + 
+  theme_classic()
+
+
+plot(full_change_plot)
+
+ggsave(filename = "../full_country_FII_change.png",full_change_plot,device = "png", height = 40, width = 30,units = "cm",dpi=300)
+
+```
