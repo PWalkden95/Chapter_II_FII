@@ -193,13 +193,15 @@ plan(multicore(workers = detectCores() - 1))
 
 land_use_levels <- levels(alpha_data$LUI)
 
+
+
 alpha_projection_raster <-
   future.apply::future_lapply(X = land_use_levels,
                               FUN =  function(x) land_use_projection_function(land_use = x,
                                                                               projection_rasters = alpha_prediction_rasters,
                                                                               data = alpha_data,
                                                                               model = alpha_model,
-                                                                              land_use_rasters = weighted_lu,controls = "hpd",
+                                                                              land_use_rasters = weighted_lu,controls = c("hpd"),
                                                                               transformation = "log",
                                                                               alpha_beta = "alpha"
                               ))
@@ -257,7 +259,7 @@ non_forest_constants <- data.frame(
   log_hpd_1km = scale_object(0, alpha_data$log_hpd_1km),
   nat_hab_sw = scale_object(1, alpha_data$nat_hab_sw)
   # log_T30 = scale_object(0, alpha_data$log_T30),
-  # control_roads = scale_object(0, alpha_data$control_roads)
+ #  control_roads = scale_object(0, alpha_data$control_roads)
 )
 
 non_forest_alpha_baseline_rast <-

@@ -123,6 +123,9 @@ model_1 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_road
 summary(model_1)
 car::Anova(model_1)
 
+
+
+
 model_2 <- lmer(logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  + LUI:log_roads +
                   log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads + 
                   (1|SS) ,data = alpha_data)
@@ -155,7 +158,7 @@ summary(model_5)
 car::Anova(model_5)
 
 
-summary(model_2)
+summary(model_5)
 
 # 
 # 
