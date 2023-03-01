@@ -42,8 +42,8 @@ We can see the distribution of the land use and intensity classes of the availab
 ### merge together some land use classes and filter out those sites that we cannot decide what land use intensity it falls under
 alpha_data <- alpha_data %>% dplyr::mutate(LUI = ifelse(grepl(LUI, pattern = "Cropland_Intense use")|
                                                            grepl(LUI, pattern = "Cropland_Light use"), "Cropland_High use", LUI),
-                                           LUI = ifelse(grepl(LUI, pattern = "Pasture_Intense use")|
-                                                           grepl(LUI, pattern = "Pasture_Light use"), "Pasture_High use", LUI),
+                                           # LUI = ifelse(grepl(LUI, pattern = "Pasture_Intense use")|
+                                           #                 grepl(LUI, pattern = "Pasture_Light use"), "Pasture_High use", LUI),
                                            LUI = ifelse(grepl(LUI, pattern = "Urban"), "Urban", LUI)
                                            ) %>%
   dplyr::filter(!grepl(LUI , pattern = "Cannot decide"))
@@ -59,7 +59,7 @@ land_use_levels <- c("Primary forest_Minimal use","Primary forest_Light use","Pr
                      "Primary non-forest_Minimal use","Primary non-forest_Light use", "Primary non-forest_Intense use",
                      "Secondary vegetation_Minimal use","Secondary vegetation_Light use","Secondary vegetation_Intense use",
                      "Plantation forest_Minimal use","Plantation forest_Light use","Plantation forest_Intense use",
-                     "Pasture_Minimal use","Pasture_High use",
+                     "Pasture_Minimal use","Pasture_Light use","Pasture_Intense use",
                      "Cropland_Minimal use", "Cropland_High use",
                      "Urban")
 

@@ -37,7 +37,7 @@ land_use_levels <- c("Primary forest_Minimal use","Primary forest_Light use","Pr
                      "Primary non-forest_Minimal use","Primary non-forest_Light use", "Primary non-forest_Intense use",
                      "Secondary vegetation_Minimal use","Secondary vegetation_Light use","Secondary vegetation_Intense use",
                      "Plantation forest_Minimal use","Plantation forest_Light use","Plantation forest_Intense use",
-                     "Pasture_Minimal use","Pasture_Light use","Pasture_Intense use",
+                     "Pasture_Minimal use","Pasture_High use",
                      "Cropland_Minimal use", "Cropland_High use",
                      "Urban")
 
