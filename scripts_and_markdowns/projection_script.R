@@ -17,6 +17,10 @@ require(raster)
 require(sf)
 
 
+test <- readRDS(alpha_model_path)
+
+summary(test)
+
 outdir = "outputs"
 alpha_model_path = "outputs/alpha_diversity_rao_model.rds"
 alpha_data_path = "outputs/alpha_modelling_dataframe.rds"
