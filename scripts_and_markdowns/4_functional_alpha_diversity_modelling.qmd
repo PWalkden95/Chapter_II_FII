@@ -155,18 +155,20 @@ model_1 <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
       log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
-      (1 | SS) ,
+      (1 |SS/SSB) ,
     data = alpha_data
   )
 summary(model_1)
 car::Anova(model_1)
-BIC(model_1) ## 4062.492
+BIC(model_1) ## 4054.962
 ### check for random slopes
+
+
 model_1a <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
       log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
-      (1 + log_hpd_1km | SS) ,
+      (1 + log_hpd_1km|SS/SSB) ,
     data = alpha_data
   )
 summary(model_1a)
@@ -177,7 +179,7 @@ model_1b <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
       log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
-      (1 + log_roads | SS) ,
+      (1 + log_roads |SS/SSB) ,
     data = alpha_data
   )
 summary(model_1b)
@@ -188,7 +190,7 @@ model_1c <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
       log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
-      (1 + nat_hab_sw | SS) ,
+      (1 + nat_hab_sw |SS/SSB) ,
     data = alpha_data
   )
 summary(model_1c)
@@ -199,7 +201,7 @@ model_1d <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads + LUI:log_T30 +
       log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
-      (1 + log_T30 | SS) ,
+      (1 + log_T30 |SS/SSB) ,
     data = alpha_data
   )
 summary(model_1d)
@@ -213,11 +215,11 @@ model_2 <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
       log_hpd_1km + log_roads + nat_hab_sw + log_T30 + control_hpd + control_roads +
-      (1 | SS) ,
+      (1 |SS/SSB) ,
     data = alpha_data
   )
 summary(model_2)
-BIC(model_2) ## 3905.682 BIC is a lot lower in model 2 so good to proceed
+BIC(model_2) ## 3896.766 BIC is a lot lower in model 2 so good to proceed
 anova(model_2, model_1)
 ### the LRT of the models is almost significant meaning that we dont lose a significnat amount of explanatory power (just) so it is good to proceed with the simpler model
 car::Anova(model_2)
@@ -226,33 +228,33 @@ model_3 <-
   lmer(
     logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw + LUI:log_roads +
       log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads +
-      (1 | SS) ,
+      (1 | SS/SSB) ,
     data = alpha_data
   )
 summary(model_3)
-BIC(model_3) ## 3892.233 is lower by 3 which is not a lot but let's see how
+BIC(model_3) ## 3883.608 is lower by 3 which is not a lot but let's see how
 anova(model_3, model_2) ## there is not a signifcnat different in the models explantory power therefore we are good to proceed with the simpler model
 car::Anova(model_3)
 ### looks like we can also drop the interaction between LUI and log roads
 model_4 <- lmer(
   logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
     log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads +
-    (1 | SS) ,
+    (1 | SS/SSB) ,
   data = alpha_data
 )
 summary(model_4)
-BIC(model_4) ### 3719.044 biiiggg drop in BIc good to proceed
+BIC(model_4) ### 3709.433 biiiggg drop in BIc good to proceed
 anova(model_3, model_4) ## no signifcant difference in the modles good to proceed
 car::Anova(model_4)
 ## drop log roads also
 model_5 <- lmer(
   logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
     log_hpd_1km  + nat_hab_sw + control_hpd  +
-    (1 | SS) ,
+    (1 | SS/SSB) ,
   data = alpha_data
 )
 summary(model_5)
-BIC(model_5) ## 3696.08 Another drop in BIC so good to continue
+BIC(model_5) ## 3685.902 Another drop in BIC so good to continue
 anova(model_4, model_5) ## no significant difference -- all good :)
 car::Anova(model_5) ## all varaible interactions with LUI are significant so can no longer remove any variables from the model so model_5 is our final model.
 summary(model_5)

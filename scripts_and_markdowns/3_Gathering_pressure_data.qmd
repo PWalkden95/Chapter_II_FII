@@ -67,6 +67,7 @@ With that I then need to load in global rasters for the pressure we are going to
 PREDICTS_coords <-
   PREDICTS %>% dplyr::distinct(
     SS,
+    SSB,
     SSBS,
     Longitude,
     Latitude,
@@ -453,6 +454,8 @@ In the previous beta-diversity computation we calculate the dissimilarity measur
 
 beta_diversity <- readRDS("../outputs/beta_diversity_dataframe.rds")
 
+
+beta_diversity <- beta_diversity[,c(1:11)]
 
 ## function to calculate geographic distance 
 
