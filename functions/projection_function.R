@@ -409,6 +409,9 @@ forest_similarity_relative_raster <- forest_similarity_relative_raster * forest_
 
 save_location <- paste(outdir,"/",resolution,"FII_forest_similarity",year,".tif",sep = "")
 
+
+forest_similarity_relative_raster <- terra::rast(save_location)
+
 writeRaster(
   forest_similarity_relative_raster,
   filename = save_location,
@@ -422,7 +425,7 @@ print(glue::glue("forest similarity FII projection saved at {save_location}"))
 ############# non-forest 
 
 non_forest_similarity_prediction_rasters <- get_and_scale_model_rasters(raster_dir = raster_dir,
-                                                                        model_dataframe = non_forest_similarity_data, 
+                                                                        model_dataframe = non_forest_similarity_data,
                                                                         exp_columns = c(3:7))
 
 
@@ -503,6 +506,9 @@ non_forest_similarity_relative_raster <- non_forest_similarity_relative_raster *
 
 
 save_location <- paste(outdir,"/",resolution,"FII_non_forest_similarity",year,".tif",sep = "")
+
+
+non_forest_similarity_relative_raster <- terra::rast(save_location)
 
 writeRaster(
   non_forest_similarity_relative_raster,
