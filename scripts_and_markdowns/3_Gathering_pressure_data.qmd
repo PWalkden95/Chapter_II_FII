@@ -351,7 +351,7 @@ PREDICTS_sites$functional_richness <-
     PREDICTS_sites,
     MARGIN = 1,
     FUN = function(x)
-      get_richness(x[1])
+      get_richness(x[3])
   )
 
 
@@ -466,6 +466,8 @@ geographic_distance <- function(site1lat,site1long,site2lat,site2long){
  return(dist)
    
 }
+
+
 
 ## run the function in parallel
 

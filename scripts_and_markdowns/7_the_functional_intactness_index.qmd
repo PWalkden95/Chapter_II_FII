@@ -472,10 +472,12 @@ This follows essentially the same format as the alpha projections but the result
         site2_log_hpd = scale_object(0, forest_similarity_data$site2_log_hpd),
         site2_nat_hab_sw = scale_object(1, forest_similarity_data$site2_nat_hab_sw),
         site2_log_T30 = scale_object(0, forest_similarity_data$site2_log_T30),
+        site2_log_roads = scale_object(0, forest_similarity_data$site2_log_roads),
         control_roads = scale_object(0, forest_similarity_data$control_roads),
         log_environmental_distance = scale_object(0, forest_similarity_data$log_environmental_distance),
         log_geographic_distance = scale_object(0, forest_similarity_data$log_geographic_distance),
         log_hpd_diff = scale_object(0, forest_similarity_data$log_hpd_diff),
+        log_roads_diff = scale_object(0, forest_similarity_data$log_roads_diff),
         log_T30_diff = scale_object(0, forest_similarity_data$log_T30_diff),
         nat_hab_diff = scale_object(0, forest_similarity_data$nat_hab_diff)
       )

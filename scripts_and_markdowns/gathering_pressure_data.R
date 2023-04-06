@@ -43,9 +43,6 @@ PREDICTS_coords <-
     Sample_start_earliest
   ) %>% dplyr::distinct(SSBS, .keep_all = TRUE)
 
-pressure_coords <-
-  pressure_data %>% dplyr::distinct(SSBS, Longitude, Latitude)
-
 
 
 years_to_extract <- unique(substr(PREDICTS_coords$Sample_start_earliest,1,4))

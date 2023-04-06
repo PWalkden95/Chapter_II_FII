@@ -75,7 +75,12 @@ simplification_test_variables <- function(model){
 ## OUTPUT: scaled values
 
 scale_object <- function(values, by_column) {
-  return(values - attr(by_column, "scale.center")) / attr(by_column, "scale.scale")
+  
+  
+  x <- values - attr(by_column,"scale.center")
+  y <- x / attr(by_column,"scale.scale")
+  
+  return(y)
   
 }
 
@@ -279,25 +284,25 @@ get_and_weight_lu_rasters <-
 
 get_and_scale_model_rasters <-
   function(raster_dir, model_dataframe, exp_columns) {
-   
+    
     ## get the names of the explanatory variables from teh dataframe
     
-     explanatory_variables <-
+    explanatory_variables <-
       colnames(model_dataframe)[exp_columns]
     
     
     
     ### get the variables that are present in the explanatory variables that could possibly be matched to a
     ### projection rasters, additionally remove terms that can be matched to 
-     ## multiple rasters or fuzzy match to others, essentially just extracting
-     ## the meaningful value that enables matching.
+    ## multiple rasters or fuzzy match to others, essentially just extracting
+    ## the meaningful value that enables matching.
     
-     
-     ##INPUT: variable names
-     
-     ##OUTPUT: names split into parts that can then be compared to the data
-     ##       directory
-     
+    
+    ##INPUT: variable names
+    
+    ##OUTPUT: names split into parts that can then be compared to the data
+    ##       directory
+    
     split_variables <- function(variables) {
       s_vars <-
         data.frame(vars = unlist(str_split(variables, pattern = "_"))) %>%
@@ -461,6 +466,7 @@ land_use_projection_function <-
            transformation = c("log", "logit", "none"),
            alpha_beta = c("alpha", "betafor", "betanfor")) {
     
+    
     print(glue::glue("projecting for {land_use}"))
     
     
@@ -535,33 +541,33 @@ land_use_projection_function <-
         } } 
       ### else if not in an interaction just get the range of the whole data.
       else {
-          col_range <- data %>%  dplyr::select(all_of(col)) %>% range()
-        }
-        
-        ### if values exceed the limits of the range of values set to the maximum
-        ### or minimum values 
-        
-        terra::values(projection_rasters[[col]]) <-
-          ifelse(
-            terra::values(projection_rasters[[col]]) <=
-              col_range[1],
-            col_range[1],
-            terra::values(projection_rasters[[col]])
-          )
-        
-        terra::values(projection_rasters[[col]]) <-
-          ifelse(
-            terra::values(projection_rasters[[col]]) >=
-              col_range[2],
-            col_range[2],
-            terra::values(projection_rasters[[col]])
-          )
-    }
-        
+        col_range <- data %>%  dplyr::select(all_of(col)) %>% range()
+      }
       
-
-  ### predict the model with the projection rasters and constants, then 
-  ### back transform if necessary
+      ### if values exceed the limits of the range of values set to the maximum
+      ### or minimum values 
+      
+      terra::values(projection_rasters[[col]]) <-
+        ifelse(
+          terra::values(projection_rasters[[col]]) <=
+            col_range[1],
+          col_range[1],
+          terra::values(projection_rasters[[col]])
+        )
+      
+      terra::values(projection_rasters[[col]]) <-
+        ifelse(
+          terra::values(projection_rasters[[col]]) >=
+            col_range[2],
+          col_range[2],
+          terra::values(projection_rasters[[col]])
+        )
+    }
+    
+    
+    
+    ### predict the model with the projection rasters and constants, then 
+    ### back transform if necessary
     
     if (transformation == "log") {
       land_use_raster <-
@@ -581,7 +587,7 @@ land_use_projection_function <-
           const = constants,
           re.form  = NA
         ),
-        a = 0.001)
+        a = 0.01)
     }
     
     if (transformation == "none") {

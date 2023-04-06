@@ -15,11 +15,13 @@ rm(list = ls())
 
 require(tidyverse) ## data manipulation
 require(car) ## post-hoc model analyses
+library(boot)
 require(lme4) # modelling generalised linear mixed effects models
 require(lmerTest) ## model scrutiny
 require(ggResidpanel) ## model scrutiny 
 require(sjPlot) ## visulise interactions
 require(sjmisc) ## ditto
+
 ```
 
 ## Load in data
@@ -41,10 +43,10 @@ We can see the distribution of the land use and intensity classes of the availab
 
 ### merge together some land use classes and filter out those sites that we cannot decide what land use intensity it falls under
 alpha_data <- alpha_data %>% dplyr::mutate(LUI = ifelse(grepl(LUI, pattern = "Cropland_Intense use")|
-                                                           grepl(LUI, pattern = "Cropland_Light use"), "Cropland_High use", LUI),
+                                                           grepl(LUI, pattern = "Cropland_Light use"), "Cropland_High use", LUI)
                                            # LUI = ifelse(grepl(LUI, pattern = "Pasture_Intense use")|
                                            #                 grepl(LUI, pattern = "Pasture_Light use"), "Pasture_High use", LUI),
-                                           LUI = ifelse(grepl(LUI, pattern = "Urban"), "Urban", LUI)
+                                           # LUI = ifelse(grepl(LUI, pattern = "Urban"), "Urban", LUI)
                                            ) %>%
   dplyr::filter(!grepl(LUI , pattern = "Cannot decide"))
 
@@ -61,7 +63,7 @@ land_use_levels <- c("Primary forest_Minimal use","Primary forest_Light use","Pr
                      "Plantation forest_Minimal use","Plantation forest_Light use","Plantation forest_Intense use",
                      "Pasture_Minimal use","Pasture_Light use","Pasture_Intense use",
                      "Cropland_Minimal use", "Cropland_High use",
-                     "Urban")
+                     "Urban_Minimal use", "Urban_Light use","Urban_Intense use")
 
 ## relvel LUI factor
 alpha_data$LUI <- factor(alpha_data$LUI, levels = land_use_levels)
@@ -120,10 +122,10 @@ new_scale <- function(x, sds){
   sd <- sd(x)
   
   
-  scale_variable <- (x - mean)/((1/sds)*sd)
+  scale_variable <- (x - mean)/(sds*sd)
   
   
-  attr(scale_variable, "scale.scale") <- ((1/sds)*sd)
+  attr(scale_variable, "scale.scale") <- sds*sd
   attr(scale_variable, "scale.center") <- mean
   
   
@@ -236,34 +238,13 @@ BIC(model_3) ## 3883.608 is lower by 3 which is not a lot but let's see how
 anova(model_3, model_2) ## there is not a signifcnat different in the models explantory power therefore we are good to proceed with the simpler model
 car::Anova(model_3)
 ### looks like we can also drop the interaction between LUI and log roads
-model_4 <- lmer(
-  logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
-    log_hpd_1km + log_roads + nat_hab_sw + control_hpd + control_roads +
-    (1 | SS/SSB) ,
-  data = alpha_data
-)
-summary(model_4)
-BIC(model_4) ### 3709.433 biiiggg drop in BIc good to proceed
-anova(model_3, model_4) ## no signifcant difference in the modles good to proceed
-car::Anova(model_4)
-## drop log roads also
-model_5 <- lmer(
-  logRich ~ LUI  + LUI:log_hpd_1km + LUI:nat_hab_sw  +
-    log_hpd_1km  + nat_hab_sw + control_hpd  +
-    (1 | SS/SSB) ,
-  data = alpha_data
-)
-summary(model_5)
-BIC(model_5) ## 3685.902 Another drop in BIC so good to continue
-anova(model_4, model_5) ## no significant difference -- all good :)
-car::Anova(model_5) ## all varaible interactions with LUI are significant so can no longer remove any variables from the model so model_5 is our final model.
-summary(model_5)
+
 ```
 
 \
 
 ```{r}
-ggResidpanel::resid_panel(model_5)
+ggResidpanel::resid_panel(model_3)
 
 ```
 
@@ -272,13 +253,239 @@ ah the diagnostic plots look reasonably okay... the QQ plot looks a bit skew-wif
 So that's our final model decided and it looks pretty much as we'd expect. In the absence of the impact of intercations pretty much all other land uses exhibit a decrease in functional richness (apart from cropland minimal and urban - maybe has big interactions with other variables)
 
 ```{r}
-plot_model(model_5, type = "int", terms = c("LUI", "nat_hab_sw"))
+plot_model(model_3, type = "int", terms = c("LUI", "nat_hab_sw"))
 ```
 
 ```{r}
 ## lets save the model and data ready to be projected 
 
-write_rds(file = "../outputs/alpha_diversity_rao_model.rds", x = model_5)
+write_rds(file = "../outputs/alpha_diversity_rao_model.rds", x = model_3)
 write_rds(file = "../outputs/alpha_modelling_dataframe.rds", x = alpha_data)
 
+```
+
+## Bootstrapping the models 
+
+```{r}
+
+
+
+scale_object <- function(values, by_column) {
+  
+  
+  x <- values - attr(by_column,"scale.center")
+  y <- x / attr(by_column,"scale.scale")
+  
+  return(y)
+  
+}
+
+
+
+
+data <-
+  data.frame(
+    LUI = land_use_levels,
+    log_hpd_1km = mean(alpha_data$log_hpd_1km),
+    nat_hab_sw = mean(alpha_data$nat_hab_sw),
+    log_roads = mean(alpha_data$log_roads),
+    control_roads = mean(alpha_data$control_roads),
+    control_hpd = mean(alpha_data$control_hpd)
+  )
+#
+#
+#
+# # land_use_colours <-
+# #   data.frame(
+# #     land_use_combination = land_use_combination_levels,
+# #     colours = c(
+# #       "green4",
+# #       "chartreuse4",
+# #       "olivedrab2",
+# #       "springgreen2",
+# #       "#EBF787",
+# #       "#E3D438",
+# #       "#718879"
+# #     )
+# #   )
+# # rownames(land_use_colours) <- land_use_combination_levels
+#
+#
+#
+
+pred_fun <- function(x) {
+  as.numeric(predict(x, newdata = data, re.form = NA))
+}
+
+
+
+
+
+
+
+
+data$estimate <- NA
+data$upper <- NA
+data$lower <- NA
+
+
+booted_mod <-
+  bootMer(
+    model_3,
+    FUN = function(x)
+      pred_fun(x),
+    nsim =  100,
+    seed = 1234
+  )
+
+
+
+data$estimate <- exp(booted_mod$t0)
+bootstraps <- exp(booted_mod$t)
+
+
+
+ninety_five_boot <- c()
+
+for (col in 1:ncol(bootstraps)) {
+  trim_col <- bootstraps[, col]
+
+  trim_col <-
+    trim_col[trim_col > as.numeric(quantile(bootstraps[, col], 0)) &
+               trim_col < as.numeric(quantile(bootstraps[, col], 1))]
+
+
+  ninety_five_boot <- cbind(ninety_five_boot, trim_col)
+
+}
+
+
+
+ninety_five_boot <- data.frame(ninety_five_boot)
+
+
+colnames(ninety_five_boot) <-
+  land_use_levels
+
+
+boot_plot <-
+  ninety_five_boot %>% pivot_longer(cols = colnames(ninety_five_boot), names_to = "LUI")
+
+
+boot_plot$LUI <-
+  factor(boot_plot$LUI, levels = land_use_levels)
+
+
+realm_size_plot <-
+  ggplot(data = boot_plot,
+         aes(x = LUI, y = value, group = LUI)) +
+  geom_violin(
+    aes(colour = LUI, fill = LUI),
+    alpha = 0.5,
+    show.legend = FALSE
+  ) +
+  geom_boxplot(width = 0.1,
+               aes(fill = LUI),
+               show.legend = FALSE) +
+  geom_hline(yintercept = median(ninety_five_boot$`Primary forest_Minimal use`), linetype = "dashed") +
+  #scale_colour_manual(values = land_use_colours$colours) +
+  #scale_fill_manual(values = land_use_colours$colours) +
+  #scale_y_continuous(limits = c(0.2, 2.2),
+  #                  breaks = c(0.5,1,1.5,2)) +
+  theme(
+    panel.background = element_rect(fill = 'white', color = 'white'),
+    panel.grid.major = element_line(color = 'white'),
+    panel.grid.minor = element_line(color = 'white')
+  )
+# axis.title.y = element_blank(),
+#axis.text.y = element_blank(),
+#axis.ticks.y = element_blank(),
+#axis.title.x = element_blank(),
+#axis.line = element_line(colour = "black", linetype = "solid"),
+#axis.ticks.x = element_blank(),
+#axis.text.x = element_blank())
+
+
+plot(realm_size_plot)
+```
+
+## Variable significance
+
+```{r}
+
+
+
+confint(model_3, method = "boot", nsim = 200, boot.type = "perc")
+
+
+data <- alpha_data
+land_use <- "Primary forest_Minimal use"
+variable = "nat_hab_sw"
+
+
+booted_confidence_intervals <- function(data, land_use, variable){
+
+  pred_fun <- function(x) {
+  as.numeric(predict(x, newdata = ndat, re.form = NA))
+}
+
+  
+
+land_use_data <- data %>% dplyr::filter(LUI == land_use)  
+
+variable_vals <- seq(min(land_use_data[,variable], na.rm = TRUE),
+                     max(land_use_data[,variable], na.rm = TRUE), length.out = 50)
+
+
+  
+ndat <- data.frame(LUI = land_use,
+    log_hpd_1km = rep(mean(alpha_data$log_hpd_1km),50),
+    nat_hab_sw = rep(mean(alpha_data$nat_hab_sw),50),
+    log_roads = rep(mean(alpha_data$log_roads),50),
+    control_roads = rep(mean(alpha_data$control_roads),50),
+    control_hpd = rep(mean(alpha_data$control_hpd),50))
+
+ndat[,variable] <- variable_vals
+
+
+
+bb <- bootMer(model_3, FUN= function(x) pred_fun(x),nsim = 200,seed = 1234)
+
+
+
+
+ndat$booted_estimate <- exp(bb$t0)
+booted_CI <- apply(bb$t,MARGIN = 2, FUN = function(x) x[order(x)][c(5,195)])
+
+
+ndat$LC <- booted_CI[1,]
+ndat$UC <- booted_CI[2,]
+ndat$booted_estimate <- predict(model_3, newdata=ndat,re.form = NA)
+
+
+colnames(ndat)[which(colnames(ndat) == variable)] <- "x"
+colnames(land_use_data)[which(colnames(land_use_data) == variable)] <- "x"
+
+
+
+CI_plot <- ggplot(data = land_use_data, aes(x = x, y = logRich)) +
+  geom_point() +
+  geom_line(data = ndat, aes(x = x, y = booted_estimate), colour = "orange") + 
+  geom_line(data = ndat, aes(x = x, y = LC), linetype = "dashed", colour = "blue") + 
+  geom_line(data = ndat, aes(x = x, y = UC), linetype = "dashed", colour = "red") + 
+  xlab(variable) +
+  
+  theme_classic()
+
+
+return(CI_plot)
+
+}
+
+
+
+
+test <- booted_confidence_intervals(data = alpha_data, land_use = "Primary non-forest_Minimal use", variable = "log_hpd_1km")
+
+plot(test)
 ```

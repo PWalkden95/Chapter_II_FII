@@ -61,8 +61,8 @@ primary_forest_data <-
   dplyr::mutate(land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Secondary vegetation_Intense use")|
                                                 grepl(land_use_combination, pattern = "Primary forest_Minimal use - Secondary vegetation_Light use"),
                                               "Primary forest_Minimal use - Secondary vegetation_High use", paste(land_use_combination)),
-                land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Urban"),
-                                              "Primary forest_Minimal use - Urban", paste(land_use_combination)),
+                land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Urban_Light use")|grepl(land_use_combination, pattern = "Primary forest_Minimal use - Urban_Intense use"),
+                                              "Primary forest_Minimal use - Urban_High use", paste(land_use_combination)),
                  land_use_combination = ifelse(grepl(land_use_combination, pattern = "Primary forest_Minimal use - Pasture_Intense use")|
                                                  grepl(land_use_combination, pattern = "Primary forest_Minimal use - Pasture_Light use"),
                                                "Primary forest_Minimal use - Pasture_High use", paste(land_use_combination)),
@@ -94,7 +94,8 @@ land_use_combination_levels <- c("Primary forest_Minimal use - Primary forest_Mi
                                  "Primary forest_Minimal use - Pasture_High use",
                                  "Primary forest_Minimal use - Cropland_Minimal use",
                                  "Primary forest_Minimal use - Cropland_High use",
-                                 "Primary forest_Minimal use - Urban")
+                                 "Primary forest_Minimal use - Urban_Minimal use",
+                                 "Primary forest_Minimal use - Urban_High use")
 
 
 
@@ -102,6 +103,8 @@ primary_forest_data$land_use_combination <-
   factor(primary_forest_data$land_use_combination,
          levels = land_use_combination_levels)
 
+
+table(primary_forest_data$land_use_combination)
 ```
 
 ## Transformations, colinearity and scaling
@@ -114,21 +117,42 @@ first up functional similarity, as with our variables that are bound between 0 a
 
 ## visulaise similarity of the nested regions
 
-hist((1 - primary_forest_data$dissimilarity)  * primary_forest_data$beta_shared, breaks = 30)
+# hist((1 - primary_forest_data$dissimilarity)  * primary_forest_data$beta_shared, breaks = 30)
+# 
+# 
+# 
+# 
+# hist(car::logit(
+#   (1 - primary_forest_data$dissimilarity) * primary_forest_data$beta_shared,
+#   adjust = 0.01,
+#   percents = FALSE
+# ), breaks = 30) ## thats it 
 
 
+hist(1- primary_forest_data$dissimilarity)
 
 hist(car::logit(
-  (1 - primary_forest_data$dissimilarity) * primary_forest_data$beta_shared,
-  adjust = 0.0001,
+  (1 - primary_forest_data$dissimilarity),
+  adjust = 0.01,
   percents = FALSE
 ), breaks = 30) ## thats it 
 
 
+
+
+#primary_forest_data <-
+#  primary_forest_data %>% dplyr::mutate(
+#    similarity = car::logit((1 - primary_forest_data$dissimilarity) * primary_forest_data$beta_shared,
+#                            adjust = 0.01,
+ #                           percents = FALSE
+  #  )
+  #)
+
+
 primary_forest_data <-
   primary_forest_data %>% dplyr::mutate(
-    similarity = car::logit((1 - primary_forest_data$dissimilarity) * primary_forest_data$beta_shared,
-                            adjust = 0.0001,
+    similarity = car::logit((1 - primary_forest_data$dissimilarity),
+                            adjust = 0.01,
                             percents = FALSE
     )
   )
@@ -202,10 +226,10 @@ new_scale <- function(x, sds) {
   sd <- sd(x)
   
   
-  scale_variable <- (x - mean) / ((1 / sds) * sd)
+  scale_variable <- (x - mean) / (sds* sd)
   
   
-  attr(scale_variable, "scale.scale") <- ((1 / sds) * sd)
+  attr(scale_variable, "scale.scale") <- sds*sd
   attr(scale_variable, "scale.center") <- mean
   
   
@@ -287,14 +311,14 @@ model_1 <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (1 | SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 
 summary(model_1)
 car::Anova(model_1)
 
-BIC(model_1) ## 25932
+BIC(model_1) ## 19279.22
 
 
 
@@ -312,7 +336,7 @@ model_1a <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_nat_hab_sw| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1a) #### 25856.6 very much lower okay 
@@ -334,7 +358,7 @@ model_1b <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_log_roads| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1b) #### 25858.79 lower but not as low as model_1a
@@ -355,7 +379,7 @@ model_1c <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_log_hpd| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1c) #### 25935.9 nope  
@@ -377,7 +401,7 @@ model_1d <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_log_T30| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1d) #### 25949.15 -- nope
@@ -399,7 +423,7 @@ model_1e <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (nat_hab_diff| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1e) #### 25898.08 - -nope
@@ -420,7 +444,7 @@ model_1f <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (log_roads_diff| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1f) #### 25934.83 -- nope 
@@ -442,7 +466,7 @@ model_1g <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (log_hpd_diff| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1g) #### not as low as log roads
@@ -463,7 +487,7 @@ model_1h <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (log_T30_diff| SS),
-  data = primary_forest_data
+  data = primary_forest_data, REML = FALSE
 )
 
 BIC(model_1h) #### 25907.51 -- nope
@@ -490,8 +514,8 @@ plot_model(model_1a, type = "int")
 ```{r}
 ## save
 
-write_rds(file = "outputs/functional_similarity_forest_model.rds", x = model_1a)
-write_rds(file = "outputs/functional_similarity_forest_dataframe.rds", x  = primary_forest_data)
+write_rds(file = "../outputs/functional_similarity_forest_model.rds", x = model_1a)
+write_rds(file = "../outputs/functional_similarity_forest_dataframe.rds", x  = primary_forest_data)
 
 ```
 
@@ -570,12 +594,31 @@ primary_non_forest_data$land_use_combination <-
 Same transformation for the functional similarity metric
 
 ```{r}
+# 
+# hist((1-primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared)
+# 
+# hist(car::logit(
+#   (1 - primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared,
+#   adjust = 0.01,
+#   percents = FALSE
+# )) ## thats it but also we want to make it similarity as opposed to
+# ## dissimilarity
+# 
+# 
+# primary_non_forest_data <-
+#   primary_non_forest_data %>% dplyr::mutate(
+#     similarity = car::logit((1 - primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared,
+#                             adjust = 0.01,
+#                             percents = FALSE
+#     )
+#   )
 
-hist((1-primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared)
+
+hist((1-primary_non_forest_data$dissimilarity))
 
 hist(car::logit(
-  (1 - primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared,
-  adjust = 0.0001,
+  (1 - primary_non_forest_data$dissimilarity),
+  adjust = 0.01,
   percents = FALSE
 )) ## thats it but also we want to make it similarity as opposed to
 ## dissimilarity
@@ -583,11 +626,12 @@ hist(car::logit(
 
 primary_non_forest_data <-
   primary_non_forest_data %>% dplyr::mutate(
-    similarity = car::logit((1 - primary_non_forest_data$dissimilarity) * primary_non_forest_data$beta_shared,
-                            adjust = 0.0001,
+    similarity = car::logit((1 - primary_non_forest_data$dissimilarity),
+                            adjust = 0.01,
                             percents = FALSE
     )
   )
+
 
 # 1 environmental distance 
 
@@ -723,7 +767,7 @@ model_1 <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (1 | SS),
-  data = primary_non_forest_data)
+  data = primary_non_forest_data , REML = FALSE)
 
 
 
@@ -736,7 +780,7 @@ model_1 <- lmer(
 model_2 <- update(model_1, ~ . -land_use_combination:site2_nat_hab_sw)
 model_3 <- update(model_2, ~ . -land_use_combination:log_T30_diff)
 
-BIC(model_3) ## 17489.63
+BIC(model_3) ## 13224.84
 
 ## okay so model three is our model to assess whether a random slope is necessary 
 
@@ -756,7 +800,7 @@ model_3a <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_nat_hab_sw| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data,  REML = FALSE
 )
 
 BIC(model_3a) #### singular
@@ -778,7 +822,7 @@ model_3b <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_log_roads| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3b) #### singular 
@@ -799,7 +843,7 @@ model_3c <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_log_hpd| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3c) #### 17477.75 lower so go forward
@@ -821,7 +865,7 @@ model_3d <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (site2_log_T30| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3d) #### does not converge
@@ -843,7 +887,7 @@ model_3e <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (nat_hab_diff| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3e) #### singular
@@ -864,7 +908,7 @@ model_3f <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (log_roads_diff| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3f) #### singular -- pass
@@ -885,7 +929,7 @@ model_3g <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (log_hpd_diff| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3g) #### singular -- pass
@@ -906,7 +950,7 @@ model_3h <- lmer(
     log_environmental_distance + log_geographic_distance +
     control_roads + control_hpd +
     (log_T30_diff| SS),
-  data = primary_non_forest_data
+  data = primary_non_forest_data, REML = FALSE
 )
 
 BIC(model_3h) #### higher -- do not proceed
@@ -914,8 +958,8 @@ BIC(model_3h) #### higher -- do not proceed
 
 ### despite  model 3g having a lower BIC it has a singular fit so I should pass on the model - therefore model_3c then has the next lowest BIC so will proceed with that 
 
-summary(model_3c)
-car::Anova(model_3c)
+summary(model_3e)
+car::Anova(model_3e)
 ```
 
 So we now proceed with model selection, here we should drop land_use_combination:log_roads_diff. Then to check whether a significant amount of explanatory power is lost I will compare the likelihood ratio of our observed model with the distribution of likelihood ratios of the permuted data. If the likelihood ratio is significantly higher than expected then the simplified model can proceed.
@@ -928,7 +972,7 @@ source("../functions/Permuted_model_simplification.R")
 
 ### need to remove land_use_combination:log_roads_diff
 
-model_4 <- update(model_3c, ~ . -land_use_combination:log_roads_diff)
+model_4 <- update(model_3e, ~ . -land_use_combination:log_roads_diff)
 
     
     #### create blank object to then hold LRT of the random comparisons of models 
@@ -983,9 +1027,9 @@ model_4 <- update(model_3c, ~ . -land_use_combination:log_roads_diff)
     car::Anova(model_4)
     
     
-    ##### drop log roads 
+    ##### drop site2_log_T30
     
-    model_5 <- update(model_4, ~ . -log_T30_diff)
+    model_5 <- update(model_4, ~ . -log_roads_diff)
     
     
     plan(multicore(workers = detectCores() - 1))
@@ -1012,66 +1056,66 @@ model_4 <- update(model_3c, ~ . -land_use_combination:log_roads_diff)
     
     
     car::Anova(model_5)
+    summary(model_5)
     
-    
-    model_6 <- update(model_5, ~ . -site2_log_T30)
-    
-        
-    plan(multicore(workers = detectCores() - 1))
-    options(future.globals.maxSize= 10000000000000000000000000)
-    
-    LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_5, model2 = model_6))
-    
-    
-    closeAllConnections()
-    
-    ### same again but with the observed data
-    mod_LRT <- anova(model_5, model_6)
-    ChiSq <- mod_LRT[2,"Chisq"]
-    
-    ## get the 95 percentile of the distribution
-    
-    dist_quant <- quantile(LRT_dist, 0.95)
-    
-    ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
-    ### impacted by the removal of the variable 
-    
-    DROP <- ChiSq < dist_quant
-    
-    
-    
-    car::Anova(model_6)
-    
-    
-    model_7 <- update(model_6, ~ . -site2_nat_hab_sw)
-    
-    
-        plan(multicore(workers = detectCores() - 1))
-    options(future.globals.maxSize= 10000000000000000000000000)
-    
-    LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_6, model2 = model_7))
-    
-    
-    closeAllConnections()
-    
-    ### same again but with the observed data
-    mod_LRT <- anova(model_6, model_7)
-    ChiSq <- mod_LRT[2,"Chisq"]
-    
-    ## get the 95 percentile of the distribution
-    
-    dist_quant <- quantile(LRT_dist, 0.95)
-    
-    ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
-    ### impacted by the removal of the variable 
-    
-    DROP <- ChiSq < dist_quant
-    
-    
-    
-    car::Anova(model_7)
-    
-    summary(model_7)
+    # model_6 <- update(model_5, ~ . -log_T30_diff)
+    # 
+    #     
+    # plan(multicore(workers = detectCores() - 1))
+    # options(future.globals.maxSize= 10000000000000000000000000)
+    # 
+    # LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_5, model2 = model_6))
+    # 
+    # 
+    # closeAllConnections()
+    # 
+    # ### same again but with the observed data
+    # mod_LRT <- anova(model_5, model_6)
+    # ChiSq <- mod_LRT[2,"Chisq"]
+    # 
+    # ## get the 95 percentile of the distribution
+    # 
+    # dist_quant <- quantile(LRT_dist, 0.95)
+    # 
+    # ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
+    # ### impacted by the removal of the variable 
+    # 
+    # DROP <- ChiSq < dist_quant
+    # 
+    # 
+    # 
+    # car::Anova(model_6)
+    # 
+    # 
+    # model_7 <- update(model_6, ~ . -site2_nat_hab_sw)
+    # 
+    # 
+    #     plan(multicore(workers = detectCores() - 1))
+    # options(future.globals.maxSize= 10000000000000000000000000)
+    # 
+    # LRT_dist <- future_apply(matrix(1:length(Permuted_data),ncol = 1),MARGIN = 1,FUN = function(x) LRT_get(x,model1 = model_6, model2 = model_7))
+    # 
+    # 
+    # closeAllConnections()
+    # 
+    # ### same again but with the observed data
+    # mod_LRT <- anova(model_6, model_7)
+    # ChiSq <- mod_LRT[2,"Chisq"]
+    # 
+    # ## get the 95 percentile of the distribution
+    # 
+    # dist_quant <- quantile(LRT_dist, 0.95)
+    # 
+    # ### if the LR of the observed model is less than the 95 percentile then the variable can be dropped from the model as the model is not significantly 
+    # ### impacted by the removal of the variable 
+    # 
+    # DROP <- ChiSq < dist_quant
+    # 
+    # 
+    # 
+    # car::Anova(model_7)
+    # 
+    # summary(model_7)
     
 ```
 
@@ -1089,7 +1133,7 @@ plot_model(model_7, type = "int")
 Let's save and continue to projections
 
 ```{r}
-write_rds("outputs/functional_similarity_non_forest_model.rds", x = model_7)
-write_rds("outputs/functional_similarity_non_forest_dataframe.rds", x = primary_non_forest_data)
+write_rds("../outputs/functional_similarity_non_forest_model.rds", x = model_5)
+write_rds("../outputs/functional_similarity_non_forest_dataframe.rds", x = primary_non_forest_data)
 
 ```
