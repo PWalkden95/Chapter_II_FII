@@ -432,7 +432,7 @@ print(glue::glue("forest similarity FII projection saved at {save_location}"))
 
 non_forest_similarity_prediction_rasters <- get_and_scale_model_rasters(raster_dir = raster_dir,
                                                                         model_dataframe = non_forest_similarity_data,
-                                                                        exp_columns = c(3:9))
+                                                                        exp_columns = c(3:8))
 
 
 land_use_levels <- levels(non_forest_similarity_data$land_use_combination)
@@ -448,6 +448,7 @@ non_forest_similarity_projection_raster <-
         data = non_forest_similarity_data,
         model = non_forest_similarity_model,
         land_use_rasters = weighted_lu,
+        controls = c("hpd"),
         transformation = "logit",
         alpha_beta = "betanfor"
       )
@@ -471,8 +472,8 @@ non_forest_constants <-
     site2_log_hpd = scale_object(0, non_forest_similarity_data$site2_log_hpd),
     site2_nat_hab_sw = scale_object(1, non_forest_similarity_data$site2_nat_hab_sw),
     site2_log_T30 = scale_object(0, non_forest_similarity_data$site2_log_T30),
-    site2_log_roads = scale_object(0, non_forest_similarity_data$site2_log_roads),
-    control_roads = scale_object(0, non_forest_similarity_data$control_roads),
+    #site2_log_roads = scale_object(0, non_forest_similarity_data$site2_log_roads),
+    #control_roads = scale_object(0, non_forest_similarity_data$control_roads),
     log_environmental_distance = scale_object(0, non_forest_similarity_data$log_environmental_distance),
     log_geographic_distance = scale_object(0, non_forest_similarity_data$log_geographic_distance),
     log_hpd_diff = scale_object(0, non_forest_similarity_data$log_hpd_diff),

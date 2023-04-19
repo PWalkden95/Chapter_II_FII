@@ -21,7 +21,7 @@ require(future.apply)
 require(doParallel)
 require(parallel)
 require(stringr)
-require(raster)
+
 
 ## this function  extracts the main effects and interactions
 ## from a model. -- taken from function script to test similarity models

@@ -98,7 +98,7 @@ write_rds(file = "outputs/FII_legend_colours.rds", FII_col)
 
 ######## differenc eplot and getting the legend colours
 
-difference <- (FII_2020 / FII_2000 * 100) - 100
+difference <- FII_2020 - FII_2000
 
 difference_df <- as.data.frame(difference, xy = TRUE) %>% tidyr::drop_na()
 
@@ -106,7 +106,7 @@ high_values <- difference_df$lyr1[difference_df$lyr1>0]
 
 high_quants <- c()
 
-for(i in seq(0.001,0.999,length.out = 500)){
+for(i in seq(0,1,length.out = 500)){
 
 high_quants <- c(high_quants,quantile(high_values,i))
 
@@ -116,7 +116,7 @@ low_values <- difference_df$lyr1[difference_df$lyr1<0]
 
 low_quants <- c()
 
-for(i in seq(0.001,0.999,length.out = 500)){
+for(i in seq(0,1,length.out = 500)){
   
   low_quants <- c(low_quants,quantile(low_values,i))
   
@@ -126,13 +126,13 @@ for(i in seq(0.001,0.999,length.out = 500)){
   
 
 low_col <-
-  colorRampPalette(c("orange4" , "orange"))
+  colorRampPalette(c("orange4" ,"chocolate" ,"orange"))
 
 low_colours <- data.frame(values = low_quants, colours = low_col(length(low_quants)))  
 
 
 high_col <-
-  colorRampPalette(c("springgreen", "darkgreen"))
+  colorRampPalette(c("springgreen","limegreen","darkgreen"))
 
 high_colours <- data.frame(values = high_quants, colours = high_col(length(low_quants)))  
 
@@ -188,7 +188,7 @@ mask_frame$position <- factor(mask_frame$position)
     if (map) {
       
       world_polygon <-
-        st_as_sf(world_poly) %>% st_transform(crs = newcrs) %>% fortify()
+        st_as_sf(world_poly) %>% fortify()
       
 
       
@@ -271,17 +271,17 @@ ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmFII_2020_plot.png",
   FII_2020_plot,
   device = "png",
-  height = 10,
-  width = 40,
-  dpi = 300
+  height = 7,
+  width = 20,
+  dpi = 600
 )
 ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmFII_2000_plot.png",
   FII_2000_plot,
   device = "png",
-  height = 10,
-  width = 40,
-  dpi = 300
+  height = 7,
+  width = 20,
+  dpi = 600
 )
 
 ############################
@@ -364,9 +364,9 @@ ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmforest_FII_2000_plot.png",
   forest_FII_2000_plot,
   device = "png",
-  height = 10,
-  width = 40,
-  dpi = 300
+  height = 7,
+  width = 20,
+  dpi = 600
 )
 
 
@@ -385,9 +385,9 @@ ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmforest_FII_2020_plot.png",
   forest_FII_2020_plot,
   device = "png",
-  height = 10,
-  width = 40,
-  dpi = 300
+  height = 7,
+  width = 20,
+  dpi = 600
 )
 
 ##### Non- forest bioregions that I am going to high are the chaco, cerrado and pantanal in south america
@@ -432,9 +432,9 @@ ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmnon_forest_FII_2000_plot.png",
   non_forest_FII_2000_plot,
   device = "png",
-  height = 10,
-  width = 40,
-  dpi = 300
+  height = 7,
+  width = 20,
+  dpi = 600
 )
 
 
@@ -453,9 +453,9 @@ ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmnon_forest_FII_2020_plot.png",
   non_forest_FII_2020_plot,
   device = "png",
-  height = 10,
-  width = 40,
-  dpi = 300
+  height = 7,
+  width = 20,
+  dpi = 600
 )
 
 
@@ -468,16 +468,11 @@ countries <-
 
 
 
-country_median_FII_values <- c()
-country_full_FII_values <- c()
 
-for (i in 1:nrow(countries)) {
-  vector <- terra::vect(countries$geometry[i])
-  vector <- terra::project(x = vector, newcrs)
+extract_FII_values <- function(id,vector){  
   
-  if (ext(vector)[3] < ext(FII_2020)[3] |
-      is.na(countries$iso_short[i])) {
-    next()
+  if (ext(vector)[3] < ext(FII_2020)[3]) {
+    return(NA)
   }
   
   
@@ -487,56 +482,200 @@ for (i in 1:nrow(countries)) {
   
   
   
+  # sf_use_s2(TRUE)
+  # if (!st_is_valid(vector)) {
+  #   sf_use_s2(FALSE)
+  # }
   
-  sf_use_s2(TRUE)
-  if (!st_is_valid(countries$geometry[i])) {
-    sf_use_s2(FALSE)
-  }
+ 
   
-  
-  if ((sum(terra::values(mask_2020) > 0, na.rm = TRUE) /
-       
-       (as.numeric(st_area(
-         countries$geometry[i]
-       )) / (10000 * 10000))) < 0.3) {
-    next()
+  if (terra::expanse(mask_2020, unit = "km")/ (terra::expanse(vector, unit = "km")) < 0.3) {
+    return(NA)
   }
   
   
   full_values <- data.frame(
-    country = countries$iso_short[i],
+    ID = id,
     values_2000 = as.data.frame(mask_2000)[, 1],
     values_2020 = as.data.frame(mask_2020)[, 1],
-    country_area = as.numeric(st_area(countries$geometry[i]))
+    extract_area = sum(terra::values(mask_2020) > 0, na.rm = TRUE)
   )
   
   
   
   median_values <-
     data.frame(
-      country = countries$iso_short[i],
-      country_area = as.numeric(st_area(countries$geometry[i])),
+      ID = id,
+      extract_area = sum(terra::values(mask_2020) > 0, na.rm = TRUE),
       median_FII_2020 = median(terra::values(mask_2020), na.rm = TRUE),
       median_FII_2000 = median(terra::values(mask_2000), na.rm = TRUE)
     )
   
-  country_median_FII_values <-
-    rbind(country_median_FII_values, median_values)
-  country_full_FII_values <-
-    rbind(country_full_FII_values, full_values)
+ 
+  function_list <- list(full_values,median_values)
   
   
+  return(function_list)
   
 }
 
 
-write_rds(file = "outputs/10kmmean_country_FII.rds", x = country_median_FII_values)
+country_median_FII_values <- c()
+country_full_FII_values <- c()
+    
+
+
+for(i in 1:nrow(countries)){
+  
+  id <- countries$iso_short[i]
+  
+  if(is.na(id)){
+    next()
+  }
+  
+  if(id == "France"){
+    
+    vector <- terra::project(terra::crop(terra::vect(countries$geometry[i]),
+                                         y = c(-5,12,40,55)),
+                             y = newcrs)
+    
+    FII_vals <- extract_FII_values(id = id, vector = vector)
+    
+    country_median_FII_values <- rbind(country_median_FII_values,FII_vals[[2]])
+    country_full_FII_values <- rbind(country_full_FII_values,FII_vals[[1]])
+    
+    
+    
+    id <- "French Guiana"
+    vector <- terra::project(terra::crop(terra::vect(countries$geometry[77]),
+                                         y = c(-60,-40,0,10)),
+                             y = newcrs)
+    
+    FII_vals <- extract_FII_values(id = id, vector = vector)
+    
+    country_median_FII_values <- rbind(country_median_FII_values,FII_vals[[2]])
+    country_full_FII_values <- rbind(country_full_FII_values,FII_vals[[1]])
+    
+    
+  } else{
+  
+  vector <- terra::project(terra::vect(countries$geometry[i]), y = newcrs)
+
+  FII_vals <- extract_FII_values(id = id, vector = vector)
+  
+  if(!is.list(FII_vals)){
+    next()
+  }
+    
+  country_median_FII_values <- rbind(country_median_FII_values,FII_vals[[2]])
+  country_full_FII_values <- rbind(country_full_FII_values,FII_vals[[1]])
+  
+}    
+}
+    
+  
+  
+write_rds(file = "outputs/10kmmedian_country_FII.rds", x = country_median_FII_values)
 write_rds(file = "outputs/10kmfull_country_FII.rds", x = country_full_FII_values)
 
 
 ####################
 ## BIOREGIONS #####
 ###################
+
+
+bioregion_median_FII <- c()
+bioregion_full_FII <- c()
+
+
+for(i in 1:length(bioregions_list)){
+  
+  id <- names(bioregions_list)[i]
+  
+  vector <- ecoregions %>% dplyr::filter(ECO_NAME %in% bioregions_list[[i]]) %>% st_union() %>%
+    st_transform(newcrs) %>% terra::vect()
+
+FII_vals <- extract_FII_values(id = id, vector = vector)
+
+if(!is.list(FII_vals)){
+  next()
+}
+
+bioregion_median_FII <- rbind(bioregion_median_FII, FII_vals[[2]])
+bioregion_full_FII <- rbind(bioregion_full_FII, FII_vals[[1]])
+  
+}
+
+
+write_rds(file = "outputs/10kmmedian_bioregion_FII.rds", x = bioregion_median_FII)
+write_rds(file = "outputs/10kmfull_bioregion_FII.rds", x = bioregion_full_FII)
+
+########################################
+##### ECOREGION ########################
+########################################
+
+
+ecoregion_median_FII <- c()
+ecoregion_full_FII <- c()
+
+
+
+for(i in 1:nrow(ecoregions)){
+  
+  id <- ecoregions$ECO_NAME[i]
+  
+  vector <- ecoregions %>% dplyr::filter(ECO_NAME == id) %>%
+    st_transform(newcrs) %>% terra::vect()
+  
+
+  FII_vals <- extract_FII_values(id = id, vector = vector)
+  
+  if(!is.list(FII_vals)){
+    next()
+  }
+  
+  ecoregion_median_FII <- rbind(ecoregion_median_FII, FII_vals[[2]])
+  ecoregion_full_FII <- rbind(ecoregion_full_FII, FII_vals[[1]])
+  
+}
+
+
+write_rds(file = "outputs/10kmmedian_ecoregion_FII.rds", x = ecoregion_median_FII)
+write_rds(file = "outputs/10kmfull_ecoregion_FII.rds", x = ecoregion_full_FII)
+
+
+###########################
+### IPBES subregions ######
+###########################
+
+
+subregions <- st_read("data/IPBES_subregions/IPBES_Regions_Subregions2.shp")
+
+subregion_median_FII <- c()
+subregion_full_FII <- c()
+
+for(i in unique(subregions$Sub_Region)) {
+  id <- i
+  
+  vector <- subregions %>% dplyr::filter(Sub_Region == i) %>% st_union() %>% st_transform(newcrs) %>% terra::vect() 
+    
+  
+  FII_vals <- extract_FII_values(id = id, vector = vector)
+  
+  if(!is.list(FII_vals)){
+    next()
+  }
+  
+  
+  subregion_median_FII <- rbind(subregion_median_FII, FII_vals[[2]])
+  subregion_full_FII <- rbind(subregion_full_FII, FII_vals[[1]])
+  
+  
+}
+
+
+write_rds(file = "outputs/10kmmedian_subregion_FII.rds", x = subregion_median_FII)
+write_rds(file = "outputs/10kmfull_subregion_FII.rds", x = subregion_full_FII)
 
 
 ## function
@@ -574,7 +713,7 @@ difference_function <- function(bioregion, forest = TRUE){
   }
   
   
-  difference <- (bioregion_2020 / bioregion_2000 * 100) - 100
+  difference <- bioregion_2020 - bioregion_2000
 
   difference_rasters <- c(bioregion_2000,bioregion_2020,difference)
   
@@ -600,7 +739,7 @@ ggsave(
   device = "png",
   height = 25,
   width = 20,
-  dpi = 300
+  dpi = 600
 )
 
 
@@ -611,7 +750,7 @@ borneo_difference <- difference_function(borneo_bioregion, forest = TRUE)
 median(terra::values(borneo_difference[[1]], na.rm = TRUE))
 median(terra::values(borneo_difference[[2]], na.rm = TRUE))
 
-borneo_difference_plot <- raster_plot(raster = borneo_difference, map = TRUE, difference = TRUE) 
+borneo_difference_plot <- raster_plot(raster = borneo_difference[[3]], map = TRUE, difference = TRUE) 
 
 ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmborneo_FII_plot.png",
@@ -619,7 +758,7 @@ ggsave(
   device = "png",
   height = 25,
   width = 20,
-  dpi = 300
+  dpi = 600
 )
 
 
@@ -634,7 +773,7 @@ south_america_difference <- difference_function(south_america_bioregion, forest 
 median(terra::values(south_america_difference[[1]], na.rm = TRUE))
 median(terra::values(south_america_difference[[2]], na.rm = TRUE))
 
-south_america_plot <- raster_plot(raster = south_america_difference, map = TRUE, difference = TRUE)
+south_america_plot <- raster_plot(raster = south_america_difference[[3]], map = TRUE, difference = TRUE)
 
 
 ggsave(
@@ -643,7 +782,7 @@ ggsave(
   device = "png",
   height = 30,
   width = 20,
-  dpi = 300
+  dpi = 600
 )
 
 ### southern africa
@@ -654,7 +793,7 @@ southern_africa_difference <- difference_function(southern_africa_bioregion, for
 median(terra::values(southern_africa_difference[[1]], na.rm = TRUE))
 median(terra::values(southern_africa_difference[[2]], na.rm = TRUE))
 
-southern_africa_difference_plot <- raster_plot(southern_africa_difference, map = TRUE, difference = TRUE)
+southern_africa_difference_plot <- raster_plot(southern_africa_difference[[3]], map = TRUE, difference = TRUE)
 
 
 ggsave(
@@ -663,5 +802,5 @@ ggsave(
   device = "png",
   height = 30,
   width = 20,
-  dpi = 300
+  dpi = 600
 )

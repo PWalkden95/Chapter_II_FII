@@ -41,7 +41,7 @@ site_plot <- ggplot() + coord_fixed() +
     size = 5,alpha = 0.2
   ) +
   scale_x_continuous(limits = c(-180, 180), breaks = seq(-180, 180, 30)) +
-  scale_y_continuous(limits = c(-90, 90), breaks = seq(-90, 90, 30)) +
+  scale_y_continuous(limits = c(-60, 90), breaks = seq(-90, 90, 30)) +
   theme_classic()
 
 plot(site_plot)
@@ -50,10 +50,38 @@ plot(site_plot)
 
 ###### forest maps 
 
-forest <- terra::rast("data/projection_rasters/2000-rasters-for-projections/10km/10kmforest_biomes.tif") 
-
 non_forest <- terra::rast("data/projection_rasters/2000-rasters-for-projections/10km/10kmnon_forest_biomes.tif") 
+
+forest_dat <- terra::as.data.frame(non_forest, xy = TRUE) %>% drop_na() %>%
+  dplyr::mutate(layer = factor(layer))
+
 
 
 plot(non_forest, col = c("darkgreen","chocolate"))
+
+
+
+forest_poly <- terra::as.polygons(forest)
+non_forest_poly <- terra::as.polygons(non_forest) %>% sf::st_as_sf()
+plot(forest_poly)
+
+
+predicts_plot <- ggplot() + coord_fixed() +
+  geom_tile(data = forest_dat,aes(x = x, y = y, fill = layer), show.legend = FALSE) + 
+  scale_fill_manual(name = "layer", values = c("darkgreen","chocolate")) +
+  geom_point(
+    data = fortify(site_points),
+    aes(Longitude, Latitude),
+    colour = "black",
+    size = 5,alpha = 0.2
+  ) +
+  scale_x_continuous(limits = c(-180, 180), breaks = seq(-180, 180, 30)) +
+  scale_y_continuous(limits = c(-60, 90), breaks = seq(-60, 90, 30)) +
+  theme_classic()
+
+plot(predicts_plot)
+
+
+
+
 
