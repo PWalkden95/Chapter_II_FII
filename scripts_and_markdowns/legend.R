@@ -68,21 +68,21 @@ difference_colours <- readRDS("outputs/difference_legend_colours.rds")
 
 difference_legend <-
   data.frame(x = rep(seq(min(difference_colours$values, na.rm = TRUE), max(difference_colours$values), length.out = 20000), each = 100),
-             y = rep(seq(0, 5, length.out = 100), 20000))
+             y = rep(seq(0, 0.29454, length.out = 100), 20000))
 
 
 difference_legend$position <- apply(difference_legend, MARGIN = 1, FUN = function(x) find_position(x = x[1], y = difference_colours$values))
 difference_legend$position <- factor(difference_legend$position)
 
-range = abs(min(difference_colours$values, na.rm = TRUE))
+range = abs(max(difference_colours$values, na.rm = TRUE))
 
-range*(2/3)
+range*(3/3)
 
 
 difference_legend_plot <- ggplot() + coord_fixed() +
   geom_tile(data = difference_legend, aes(x = x, y = y, fill = position), show.legend = FALSE) +
   scale_fill_manual(name = "position", values = difference_colours$colours) +
-  scale_x_continuous(breaks = c(-51.75,-34.5,-17.25,25.27,50.55,75.82)) + 
+  scale_x_continuous(breaks = c(-0.7217,-0.4812,-0.2406,0,0.2503,0.5006,0.751)) + 
   theme(
     axis.line = element_line(colour = "black", linetype = "solid"),
     axis.title.y = element_blank(),

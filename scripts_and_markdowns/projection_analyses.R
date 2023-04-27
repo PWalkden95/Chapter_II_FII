@@ -273,7 +273,7 @@ ggsave(
   device = "png",
   height = 7,
   width = 20,
-  dpi = 600
+  dpi = 2000
 )
 ggsave(
   filename = "outputs/FII_maps_and_graphs/10kmFII_2000_plot.png",
@@ -281,7 +281,7 @@ ggsave(
   device = "png",
   height = 7,
   width = 20,
-  dpi = 600
+  dpi = 2000
 )
 
 ############################
@@ -366,7 +366,7 @@ ggsave(
   device = "png",
   height = 7,
   width = 20,
-  dpi = 600
+  dpi = 2000
 )
 
 
@@ -387,7 +387,7 @@ ggsave(
   device = "png",
   height = 7,
   width = 20,
-  dpi = 600
+  dpi = 2000
 )
 
 ##### Non- forest bioregions that I am going to high are the chaco, cerrado and pantanal in south america
@@ -434,7 +434,7 @@ ggsave(
   device = "png",
   height = 7,
   width = 20,
-  dpi = 600
+  dpi = 2000
 )
 
 
@@ -455,7 +455,7 @@ ggsave(
   device = "png",
   height = 7,
   width = 20,
-  dpi = 600
+  dpi = 2000
 )
 
 
