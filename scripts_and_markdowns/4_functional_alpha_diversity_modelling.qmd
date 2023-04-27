@@ -257,6 +257,13 @@ So that's our final model decided and it looks pretty much as we'd expect. In th
 
 ```{r}
 plot_model(model_3, type = "int", terms = c("LUI", "nat_hab_sw"))
+
+
+
+post_hoc_pairwise_comparisons <-   emmeans::emmeans(model_3, pairwise ~ LUI, adjust = "tukey")
+
+contrasts <- summary(post_hoc_pairwise_comparisons)[["contrasts"]]
+
 ```
 
 ```{r}
